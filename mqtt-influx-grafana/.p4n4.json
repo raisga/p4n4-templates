@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "project": "mqtt-influx-grafana",
+  "layers": [
+    "iot"
+  ],
+  "template": {
+    "name": "mqtt-influx-grafana",
+    "version": "0.1.0"
+  }
+}

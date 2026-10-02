@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    name: Validate templates
+    runs-on: ubuntu-latest
+    outputs:
+      templates: ${{ steps.list.outputs.templates }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Validate
+        run: uv run scripts/validate.py
+      - id: list
+        name: List templates
+        run: echo "templates=$(uv run scripts/validate.py --list)" >> "$GITHUB_OUTPUT"
+
+  smoke:
+    name: Smoke test (${{ matrix.template }})
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        template: ${{ fromJSON(needs.validate.outputs.templates) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Run smoke test
+        working-directory: ${{ matrix.template }}
+        run: |
+          test=$(uv run --with pyyaml python -c "import yaml; print(yaml.safe_load(open('template.yaml')).get('smoke_test') or '')")
+          if [ -z "$test" ]; then echo "no smoke_test declared"; exit 0; fi
+          "./$test"

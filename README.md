@@ -2,7 +2,7 @@
 
 > Community template registry for the **P4N4** platform.
 
-Pre-built project configurations for common IoT + GenAI + Edge AI deployment patterns. Templates are applied via `p4n4 template apply <name>` and scaffold a complete project directory with pre-configured stacks, flows, and dashboards.
+Pre-built project configurations for common IoT + GenAI + Edge AI deployment patterns. Templates are installed via `p4n4 template install <name>` and scaffold a complete project directory with pre-configured stacks, flows, and dashboards.
 
 Part of the [p4n4](https://github.com/raisga/p4n4) platform — an EdgeAI + GenAI integration platform for IoT deployments.
 
@@ -24,16 +24,26 @@ Part of the [p4n4](https://github.com/raisga/p4n4) platform — an EdgeAI + GenA
 
 Templates extend `p4n4 init` with pre-configured project layouts tailored to specific use cases. Each template bundles:
 
-- A `.p4n4.json` manifest declaring the active layers
-- Pre-configured `config/` files (Mosquitto, Node-RED flows, Grafana dashboards)
+- A `template.yaml` with registry metadata (layers, services, ports, data contract)
+- A `.p4n4.json` manifest declaring the active layers and the template it came from
+- A complete `docker-compose.yml` and pre-configured `config/` files (Mosquitto, Telegraf, Grafana dashboards, …)
 - A `.env.example` with use-case-specific variable names and defaults
 - A `README.md` describing the template and its expected sensor data format
+- An end-to-end smoke test (`tests/smoke.sh`) that CI runs on every change
+
+Every template is **self-contained**: the directory is a runnable project on its own, with no CLI required.
 
 > **Note:** `p4n4 template` CLI commands are not yet implemented. Templates can currently be applied manually by cloning this repo and copying the relevant directory as your project root.
 
 ---
 
 ## Available Templates
+
+| Template | Layers | Description |
+|----------|--------|-------------|
+| [`mqtt-influx-grafana`](mqtt-influx-grafana) | iot | MQTT → Telegraf → InfluxDB + file-system archive → Grafana dashboard. The starting point for sensor telemetry |
+
+### Planned
 
 | Template | Layers | Description |
 |----------|--------|-------------|
@@ -50,8 +60,8 @@ Templates extend `p4n4 init` with pre-configured project layouts tailored to spe
 # Search available templates
 p4n4 template search
 
-# Apply a template to a new project
-p4n4 template apply factory-baseline
+# Install a template into a new project
+p4n4 template install mqtt-influx-grafana
 ```
 
 ### Manually
@@ -61,7 +71,7 @@ p4n4 template apply factory-baseline
 git clone https://github.com/raisga/p4n4-templates.git
 
 # Copy the template as your project directory
-cp -r p4n4-templates/factory-baseline my-project
+cp -r p4n4-templates/mqtt-influx-grafana my-project
 cd my-project
 
 # Generate secrets
@@ -80,16 +90,22 @@ Each template is a directory at the root of this repository:
 
 ```
 <template-name>/
-├── .p4n4.json           # Manifest — project name, active layers, schema_version: 1
+├── template.yaml        # Registry metadata, validated against schema/template.schema.json
+├── .p4n4.json           # Manifest: schema_version 1, project, layers, template {name, version}
 ├── .env.example         # Environment variable template (no real secrets)
-├── docker-compose.yml   # Stack orchestration
-├── config/
-│   ├── mosquitto/       # MQTT broker config
-│   ├── node-red/        # Flows and settings
-│   └── grafana/         # Provisioned datasources and dashboards
-├── scripts/
-│   └── init-buckets.sh  # InfluxDB bucket initialization
-└── README.md            # Template-specific usage guide
+├── docker-compose.yml   # Stack orchestration (complete and runnable)
+├── config/              # One directory per configured service (mosquitto/, telegraf/, grafana/, …)
+├── scripts/             # Helpers mounted into containers (simulators, init scripts)
+├── tests/smoke.sh       # End-to-end test, run by CI
+└── README.md            # Template-specific usage guide and data contract
+```
+
+Registry tooling lives next to the templates:
+
+```
+schema/template.schema.json   # template.yaml schema
+scripts/validate.py           # static checks for every template
+docs/authoring.md             # conventions for writing a template
 ```
 
 ---
@@ -97,14 +113,19 @@ Each template is a directory at the root of this repository:
 ## Contributing
 
 1. Fork this repository
-2. Create a directory for your template following the structure above
+2. Read [docs/authoring.md](docs/authoring.md) and copy [`mqtt-influx-grafana`](mqtt-influx-grafana) as a starting point
 3. Add a `README.md` describing the use case, required hardware, and data format
-4. Open a pull request
+4. Run the checks, then open a pull request:
+
+```bash
+uv run scripts/validate.py <template-name>   # static checks
+<template-name>/tests/smoke.sh               # end-to-end (needs Docker)
+```
 
 Template guidelines:
 - Never include `.env` files with real secrets — only `.env.example`
 - Keep flows and dashboards self-contained (no external dependencies)
-- Test with `p4n4 validate` before submitting
+- Pin image versions (at least the minor version, never `latest`)
 
 ---
 

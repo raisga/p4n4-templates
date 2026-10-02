@@ -1,0 +1,47 @@
+# ==============================================================================
+# Template metadata, validated against schema/template.schema.json
+# ==============================================================================
+schema_version: 1
+name: mqtt-influx-grafana
+version: 0.1.0
+title: MQTT → InfluxDB → Grafana
+description: >-
+  Minimal telemetry pipeline. Devices publish readings over MQTT, Telegraf
+  writes them to InfluxDB and archives them on the file system, and Grafana
+  renders them on a provisioned dashboard.
+layers: [iot]
+tags: [mqtt, influxdb, grafana, telegraf, starter]
+maintainers:
+  - jraleman
+
+services:
+  - name: mqtt
+    description: Eclipse Mosquitto MQTT broker
+    ports: [1883, 9001]
+  - name: influxdb
+    description: InfluxDB 2 time-series database
+    ports: [8086]
+  - name: telegraf
+    description: MQTT consumer that writes to InfluxDB and the file-system archive
+  - name: grafana
+    description: Provisioned InfluxDB datasource and telemetry dashboard
+    ports: [3000]
+  - name: simulator
+    description: Demo publisher (compose profile "demo")
+    profile: demo
+
+data:
+  topics:
+    - pattern: sensors/<device-id>/<measurement>
+      payload: '{"value": 23.4, "unit": "C"} or a bare number (23.4)'
+  influxdb:
+    bucket: raw_telemetry
+    measurement: sensor_data
+    tags: [device, sensor]
+  archive:
+    - path: data/archive/lineprotocol/
+      format: influx-line-protocol
+    - path: data/archive/raw/
+      format: jsonl-raw-mqtt
+
+smoke_test: tests/smoke.sh

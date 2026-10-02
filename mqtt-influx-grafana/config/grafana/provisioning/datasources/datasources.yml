@@ -1,0 +1,24 @@
+# ==============================================================================
+# Grafana Datasources Provisioning
+# ==============================================================================
+# Env vars (INFLUXDB_TOKEN, INFLUXDB_ORG, INFLUXDB_BUCKET) are injected by
+# docker-compose.yml and expanded by Grafana at startup. Dashboards query
+# v.defaultBucket, so they follow INFLUXDB_BUCKET.
+# ==============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    uid: influxdb-telemetry
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      organization: $INFLUXDB_ORG
+      defaultBucket: $INFLUXDB_BUCKET
+    secureJsonData:
+      token: $INFLUXDB_TOKEN
+    isDefault: true
+    editable: false

@@ -1,0 +1,6 @@
+.env
+docker-compose.override.yml
+
+# File-system archive written by Telegraf (keep the directories)
+data/archive/**/*
+!data/archive/**/.gitkeep
