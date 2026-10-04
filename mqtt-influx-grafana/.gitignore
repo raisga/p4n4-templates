@@ -4,3 +4,7 @@ docker-compose.override.yml
 # File-system archive written by Telegraf (keep the directories)
 data/archive/**/*
 !data/archive/**/.gitkeep
+
+# Broker certificates (keep the directory: docker-compose.yml mounts it)
+config/mosquitto/certs/*
+!config/mosquitto/certs/.gitkeep

@@ -6,7 +6,7 @@
 |---|---|
 | Layers | `iot` |
 | Services | Mosquitto · Telegraf · InfluxDB · Grafana (+ demo simulator) |
-| Version | 0.1.0 |
+| Version | 0.2.0 |
 
 ```
   devices ──MQTT──► mqtt ──► telegraf ──┬──► influxdb ──► grafana
@@ -130,19 +130,60 @@ Raw payloads are stored with surrounding whitespace trimmed. Telegraf flushes bo
 | `ARCHIVE_ROTATION_INTERVAL` | `24h` | Archive file rotation interval |
 | `ARCHIVE_UID` / `ARCHIVE_GID` | `1000` | Owner of archive files |
 | `GRAFANA_USER` / `GRAFANA_PASSWORD` | `admin` / `adminpassword` | Grafana login |
+| `GRAFANA_SUB_PATH` | `/` | Path Grafana serves under; `/grafana/` when p4n4-dashboard proxies it on its own origin |
+| `GRAFANA_ALLOW_EMBEDDING` | `false` | `true` lets pages on other origins frame Grafana. The dashboard's web build needs it for its Grafana tab |
+| `GRAFANA_ANONYMOUS` | `false` | `true` lets anyone who reaches port 3000 view dashboards without signing in (Viewer role). Use it for kiosk screens and the dashboard's normie view |
 | `SIMULATOR_DEVICES` | `dev-01 dev-02` | Device ids the simulator publishes as |
 | `SIMULATOR_INTERVAL` | `5` | Seconds between simulated readings |
+| `MQTT_REMOTE_*` | *(empty: disabled)* | Pull topics from an external broker: see [External MQTT broker](#external-mqtt-broker) |
 
 InfluxDB's org, bucket, retention, and credentials are applied **only on first start**. Changing them later requires `docker compose down -v`, which deletes the stored data. The file-system archive survives this.
+
+### External MQTT broker
+
+When devices publish to another broker (a site gateway, a cloud broker), the local broker
+can pull their topics in, like a long-running
+`mosquitto_sub -h <host> -u <user> -P <password> -t <topic>`. Telegraf then ingests them
+alongside local readings. Nothing is published back to the external broker.
+
+```bash
+# .env
+MQTT_REMOTE_HOST=broker.example.com
+MQTT_REMOTE_USER=greenhouse
+MQTT_REMOTE_PASSWORD='s3cr$t'        # single quotes: Compose reads $ and # literally
+MQTT_REMOTE_TOPICS=sensors/#         # comma-separated topic filters
+MQTT_REMOTE_TLS=true                 # port defaults to 8883 with TLS, 1883 without
+```
+
+Then `docker compose up -d mqtt`. Bridged topics must follow the
+[topic contract](#topic) to reach InfluxDB. `MQTT_REMOTE_PREFIX` (e.g. `remote/`) renames
+them locally, which also keeps them out of Telegraf. For a private CA, put the certificate in
+`config/mosquitto/certs/` and set `MQTT_REMOTE_CA_FILE` to its file name;
+`MQTT_REMOTE_CERT_FILE` / `MQTT_REMOTE_KEY_FILE` add a client certificate for mutual TLS.
+`.env.example` lists the remaining options (QoS, client ID).
+
+`config/mosquitto/bridge.sh` writes the bridge config from these variables when the
+container starts. The broker logs the bridge target (`docker compose logs mqtt`), and
+publishes `1` (connected) or `0` locally on `$SYS/broker/connection/p4n4-remote/state`:
+
+```bash
+docker compose exec mqtt mosquitto_sub -t '$SYS/broker/connection/p4n4-remote/state' -C 1
+```
+
+A wrong login shows `Connection Refused: not authorised` in the log; the bridge retries
+with backoff.
 
 ### Where things live
 
 ```
 config/mosquitto/mosquitto.conf              broker (anonymous access: see Security)
+config/mosquitto/bridge.sh                   external broker bridge, from MQTT_REMOTE_*
+config/mosquitto/certs/                      CA / client certificates for the bridge (gitignored)
 config/telegraf/telegraf.conf                inputs, outputs and archive settings
 config/telegraf/parse_sensor.star            topic + payload → sensor_data point
 config/grafana/provisioning/datasources/     InfluxDB datasource (uid influxdb-telemetry)
 config/grafana/provisioning/dashboards/      Telemetry dashboard (uid p4n4-telemetry)
+theme/                                       p4n4-dashboard white-label theme (sample: verdant)
 scripts/simulate.sh                          demo publisher
 tests/smoke.sh                               end-to-end test
 data/archive/                                file-system archive (gitignored)
@@ -152,12 +193,40 @@ Dashboards are provisioned read-only. To change one, edit it in Grafana, export 
 
 ---
 
+## p4n4-dashboard
+
+`.p4n4.json` has a `dashboard` block that [p4n4-dashboard](https://github.com/raisga/p4n4-dashboard) reads through p4n4-api (`GET /api/v1/project`):
+
+```json
+"dashboard": {
+  "grafana_path": "/d/p4n4-telemetry/telemetry",
+  "tabs": ["services", "edge", "grafana"],
+  "theme": "theme"
+}
+```
+
+While connected to this project, the dashboard shows only the IoT stack and these tabs, and its Grafana tab opens the Telemetry dashboard in kiosk mode. Set `GRAFANA_ANONYMOUS=true` so client users can view it without a Grafana login, and `GRAFANA_ALLOW_EMBEDDING=true` for the dashboard's web build, which shows Grafana in an iframe. If you rename the dashboard's uid, update `grafana_path` too: `scripts/validate.py` and the smoke test check it.
+
+`theme/` is the dashboard's white-label theme for this project. It ships `verdant`, a sample greenhouse brand (name, colors, Manrope / DM Mono fonts, leaf icon; staff see Home and Grafana). Replace it with your client's brand, then build the dashboard from the project:
+
+```bash
+# in p4n4-dashboard
+dart run tool/brand.dart install ~/projects/greenhouse --apply
+flutter build apk --split-per-abi
+```
+
+The [greenhouse use case](https://github.com/raisga/p4n4-docs/blob/main/use-cases/greenhouse-telemetry.md) walks through the whole setup, with a white-label dashboard build.
+
 ## Security
 
 These defaults are for a trusted local network:
 
 - Mosquitto allows anonymous clients. For authentication, follow the *MQTT authentication* section of the [p4n4-iot README](https://github.com/raisga/p4n4-iot#readme) and mount the files via `docker-compose.override.yml`.
 - Change every password and `INFLUXDB_TOKEN` in `.env` before exposing any port.
+- Use `MQTT_REMOTE_TLS=true` when the external broker is reachable over the internet: without
+  TLS, `MQTT_REMOTE_PASSWORD` is sent in plain text.
+- `GRAFANA_ANONYMOUS=true` makes every dashboard readable by anyone who can reach port 3000.
+- `GRAFANA_ALLOW_EMBEDDING=true` lets any site frame Grafana (clickjacking risk). Enable it only for the dashboard's web build on a trusted network.
 
 ---
 

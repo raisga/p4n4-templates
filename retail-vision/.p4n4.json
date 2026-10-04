@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "project": "retail-vision",
+  "layers": [
+    "iot",
+    "ai",
+    "edge"
+  ],
+  "template": {
+    "name": "retail-vision",
+    "version": "0.1.0"
+  },
+  "dashboard": {
+    "grafana_path": "/d/retail-vision/store",
+    "tabs": [
+      "services",
+      "edge",
+      "agent",
+      "grafana",
+      "video"
+    ],
+    "theme": "theme",
+    "cameras": [
+      {
+        "id": "floor",
+        "name": "Sales floor",
+        "port": 1984,
+        "path": "/api/stream.mjpeg?src=floor"
+      },
+      {
+        "id": "overlay",
+        "name": "Sales floor (tracked)",
+        "port": 1984,
+        "path": "/api/stream.mjpeg?src=overlay"
+      }
+    ]
+  }
+}

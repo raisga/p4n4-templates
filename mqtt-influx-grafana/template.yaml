@@ -3,7 +3,7 @@
 # ==============================================================================
 schema_version: 1
 name: mqtt-influx-grafana
-version: 0.1.0
+version: 0.2.0
 title: MQTT → InfluxDB → Grafana
 description: >-
   Minimal telemetry pipeline. Devices publish readings over MQTT, Telegraf

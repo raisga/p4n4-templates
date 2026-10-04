@@ -17,20 +17,43 @@ WORK_DIR="$(mktemp -d)"
 cp -a "$TEMPLATE_DIR/." "$WORK_DIR/"
 cd "$WORK_DIR"
 
-# Deterministic data: no simulator, archive owned by the current user
+# Deterministic data: no simulator, archive owned by the current user. The
+# bridge pulls from the "remote" broker below; its password needs quoting.
+REMOTE_USER=smoke
+REMOTE_PASSWORD='smoke$pa ss#1'
 sed -e 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=/' \
     -e "s/^ARCHIVE_UID=.*/ARCHIVE_UID=$(id -u)/" \
     -e "s/^ARCHIVE_GID=.*/ARCHIVE_GID=$(id -g)/" \
+    -e "s/^MQTT_REMOTE_HOST=.*/MQTT_REMOTE_HOST=remote/" \
+    -e "s/^MQTT_REMOTE_USER=.*/MQTT_REMOTE_USER=$REMOTE_USER/" \
+    -e "s/^MQTT_REMOTE_PASSWORD=.*/MQTT_REMOTE_PASSWORD='$REMOTE_PASSWORD'/" \
     .env.example > .env
 env_value() { grep -E "^$1=" .env | cut -d= -f2-; }
 
 # Isolate the test from anything else on the host: no fixed container names,
-# no published ports, and a private network instead of p4n4-net.
+# no published ports, and a private network instead of p4n4-net. "remote"
+# stands in for an external broker that requires a login.
 cat > docker-compose.override.yml <<'EOF'
 services:
+  remote:
+    image: eclipse-mosquitto:2.0.22
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        printf 'listener 1883\nallow_anonymous false\npassword_file /tmp/passwd\n' > /tmp/remote.conf
+        mosquitto_passwd -b -c /tmp/passwd "$$REMOTE_USER" "$$REMOTE_PASSWORD"
+        chown mosquitto /tmp/passwd
+        exec mosquitto -c /tmp/remote.conf
+    environment:
+      REMOTE_USER: ${MQTT_REMOTE_USER}
+      REMOTE_PASSWORD: ${MQTT_REMOTE_PASSWORD}
+    networks:
+      - p4n4-net
   mqtt:
     container_name: !reset null
     ports: !reset []
+    depends_on:
+      - remote
   influxdb:
     container_name: !reset null
     ports: !reset []
@@ -94,15 +117,16 @@ pub sensors/smoke-01/humidity '48'
 pub sensors/smoke-01/broken 'not json'
 
 echo "Checking"
+# Number of sensor_data values stored for device $1
 influx_query() {
     compose exec -T influxdb influx query --raw \
         "from(bucket: \"$INFLUXDB_BUCKET\") |> range(start: -1h)
-         |> filter(fn: (r) => r._measurement == \"sensor_data\" and r.device == \"smoke-01\" and r._field == \"value\")
+         |> filter(fn: (r) => r._measurement == \"sensor_data\" and r.device == \"$1\" and r._field == \"value\")
          |> group() |> count()"
 }
-has_both_readings() { influx_query | grep -qE ',2\s*$'; }
+has_both_readings() { influx_query smoke-01 | grep -qE ',2\s*$'; }
 eventually has_both_readings && pass "InfluxDB has both readings" \
-    || { influx_query; fail "InfluxDB is missing readings"; }
+    || { influx_query smoke-01; fail "InfluxDB is missing readings"; }
 
 LP=data/archive/lineprotocol/telemetry.lp
 RAW=data/archive/raw/mqtt.jsonl
@@ -121,6 +145,25 @@ rows = [json.loads(line) for line in open(sys.argv[1])]
 assert rows and all(set(r) == {"received_at", "topic", "payload"} for r in rows), rows
 EOF
 
+echo "Checking the external broker bridge"
+bridge_connected() {
+    compose exec -T mqtt mosquitto_sub -t '$SYS/broker/connection/p4n4-remote/state' -C 1 -W 2 \
+        | grep -qx 1
+}
+eventually bridge_connected && pass "bridge logged in to the external broker" \
+    || { compose logs --no-color --tail 20 mqtt; fail "bridge did not connect"; }
+remote_pub() {
+    compose exec -T remote mosquitto_pub -u "$REMOTE_USER" -P "$REMOTE_PASSWORD" -q 1 "$@"
+}
+remote_pub -t sensors/smoke-02/temperature -m '{"value": 19.0, "unit": "C"}'
+# Retained, so it would still be on the local broker had it been bridged
+remote_pub -r -t elsewhere/smoke-02/temperature -m '99'
+has_bridged_reading() { influx_query smoke-02 | grep -qE ',1\s*$'; }
+eventually has_bridged_reading && pass "InfluxDB has the reading published on the external broker" \
+    || { influx_query smoke-02; fail "bridged reading did not reach InfluxDB"; }
+! compose exec -T mqtt mosquitto_sub -t 'elsewhere/#' -C 1 -W 3 >/dev/null 2>&1 \
+    && pass "topics outside MQTT_REMOTE_TOPICS are not bridged" || fail "an unrequested topic was bridged"
+
 # Grafana publishes no port here, so call its API from inside the container
 grafana_api() {
     compose exec -T grafana wget -qO- "http://$GRAFANA_USER:$GRAFANA_PASSWORD@localhost:3000/api/$1"
@@ -129,6 +172,11 @@ grafana_api datasources/uid/influxdb-telemetry/health | grep -q '"status":"OK"' 
     && pass "Grafana datasource is healthy" || fail "Grafana datasource health check failed"
 grafana_api dashboards/uid/p4n4-telemetry >/dev/null \
     && pass "Grafana dashboard is provisioned" || fail "Grafana dashboard is missing"
+# The dashboard p4n4-dashboard opens: .p4n4.json dashboard.grafana_path is /d/<uid>/<slug>
+GRAFANA_PATH="$(python3 -c 'import json; print(json.load(open(".p4n4.json"))["dashboard"]["grafana_path"])')"
+GRAFANA_UID="$(echo "$GRAFANA_PATH" | cut -d/ -f3)"
+grafana_api "dashboards/uid/$GRAFANA_UID" >/dev/null \
+    && pass "dashboard.grafana_path ($GRAFANA_PATH) is provisioned" || fail "dashboard.grafana_path $GRAFANA_PATH is not provisioned"
 python3 tests/check_dashboards.py p4n4-smoke "$GRAFANA_USER" "$GRAFANA_PASSWORD" \
     || fail "dashboard queries"
 

@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/raisga/p4n4-templates/schema/theme.schema.json",
+  "title": "p4n4-dashboard theme (brand.json)",
+  "description": "White-label theme a template ships for p4n4-dashboard, in the theme directory named by .p4n4.json dashboard.theme. It's the dashboard's brands/<id>/brand.json format: install it with `dart run tool/brand.dart install <project>`. Color contrast (WCAG AA) is checked by `dart run tool/brand.dart check <theme-dir>`, not here.",
+  "type": "object",
+  "required": ["id", "appName", "wordmark", "native"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "Brand id: the folder name it's installed under (brands/<id>/). \"p4n4\" is reserved for the default brand.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "not": { "const": "p4n4" }
+    },
+    "appName": { "type": "string", "minLength": 1 },
+    "wordmark": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "suffix": { "type": "string" }
+      }
+    },
+    "logo": {
+      "description": "App-bar logo file in the theme directory; replaces the wordmark.",
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "description": "Replaces \"p4n4\" in stack and service names (<platform>-iot).",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "tagline": { "type": "string" },
+    "fonts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "display": { "type": "string", "minLength": 1 },
+        "mono": { "type": "string", "minLength": 1 }
+      }
+    },
+    "colors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "light": { "$ref": "#/$defs/palette" },
+        "dark": { "$ref": "#/$defs/palette" }
+      }
+    },
+    "tabs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["services", "edge", "agent", "grafana", "video"] }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "url": { "type": "string", "pattern": "^https?://" }
+        }
+      }
+    },
+    "defaults": {
+      "description": "First-run dashboard settings (host, themeMode, clientTabs, …). Leave the Grafana page to .p4n4.json dashboard.grafana_path.",
+      "type": "object",
+      "properties": {
+        "themeMode": { "enum": ["system", "light", "dark"] },
+        "agentBackend": { "enum": ["ollama", "letta"] },
+        "edgeDemo": { "type": "boolean" },
+        "grafanaKiosk": { "type": "boolean" }
+      },
+      "additionalProperties": { "type": "string" }
+    },
+    "native": {
+      "type": "object",
+      "required": ["displayName", "applicationId", "bundleId"],
+      "additionalProperties": false,
+      "properties": {
+        "displayName": { "type": "string", "minLength": 1 },
+        "applicationId": {
+          "description": "Android application ID.",
+          "type": "string",
+          "pattern": "^[a-zA-Z]\\w*(\\.[a-zA-Z]\\w*)+$"
+        },
+        "bundleId": {
+          "description": "iOS and macOS bundle ID.",
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9-]+(\\.[a-zA-Z0-9-]+)+$"
+        },
+        "company": { "type": "string" },
+        "localNetworkUsage": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "palette": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(bg|bg2|bg3|accent|accent2|onAccent|amber|blue|heading|text|muted|border|border2|ok|warn|err)$": {
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "retail-vision",
+  "appName": "Retail Vision",
+  "wordmark": { "text": "retail", "suffix": ".vision" },
+  "platform": "retail",
+  "tagline": "Example white-label brand for the store analytics use case — replace or delete.",
+  "fonts": { "display": "Manrope", "mono": "DM Mono" },
+  "colors": {
+    "light": { "accent": "#C2410C", "accent2": "#9A3412", "onAccent": "#FFFFFF" },
+    "dark": {
+      "accent": "#FB923C", "accent2": "#F97316", "onAccent": "#1C0D02",
+      "bg": "#0C0A09", "bg2": "#141110", "bg3": "#1C1917",
+      "border": "#292524", "border2": "#44403C", "err": "#F87171"
+    }
+  },
+  "tabs": ["services", "edge", "agent", "grafana", "video"],
+  "links": [{ "label": "Template", "url": "https://github.com/raisga/p4n4-templates/tree/main/retail-vision" }],
+  "defaults": {
+    "host": "localhost",
+    "themeMode": "dark",
+    "powerTabs": "services,edge,agent,grafana,video",
+    "normieTabs": "video,agent,grafana",
+    "agentBackend": "ollama",
+    "ollamaModel": "gemma4:e2b"
+  },
+  "native": {
+    "displayName": "Retail Vision",
+    "applicationId": "com.example.retail.vision",
+    "bundleId": "com.example.retail.vision",
+    "company": "Retail Vision (example)",
+    "localNetworkUsage": "Connects to your store's cameras and dashboards on the local network."
+  }
+}

@@ -1,0 +1,64 @@
+# ==============================================================================
+# Template metadata, validated against schema/template.schema.json
+# ==============================================================================
+schema_version: 1
+name: mqtt-influx-grafana-ollama
+version: 0.2.0
+title: MQTT → InfluxDB → Grafana + Ollama
+description: >-
+  The mqtt-influx-grafana telemetry pipeline as an iot layer, plus an ai layer
+  running a local LLM (Gemma 4 E2B on Ollama) for p4n4-dashboard's Agent tab,
+  with tools that let it query the readings in InfluxDB.
+  Each layer is its own Compose project, so `p4n4 up` starts iot, then ai.
+layers: [iot, ai]
+tags: [mqtt, influxdb, grafana, telegraf, ollama, llm, starter]
+maintainers:
+  - jraleman
+
+services:
+  - name: mqtt
+    layer: iot
+    description: Eclipse Mosquitto MQTT broker
+    ports: [1883, 9001]
+  - name: influxdb
+    layer: iot
+    description: InfluxDB 2 time-series database
+    ports: [8086]
+  - name: telegraf
+    layer: iot
+    description: MQTT consumer that writes to InfluxDB and the file-system archive
+  - name: grafana
+    layer: iot
+    description: Provisioned InfluxDB datasource and telemetry dashboard
+    ports: [3000]
+  - name: simulator
+    layer: iot
+    description: Demo publisher (compose profile "demo")
+    profile: demo
+  - name: agent
+    layer: ai
+    description: Ollama API for p4n4-dashboard's Agent tab, with tools that query InfluxDB
+    ports: [11434]
+  - name: ollama
+    layer: ai
+    description: Local LLM (OLLAMA_MODEL, default gemma4:e2b), reached through the agent
+
+data:
+  topics:
+    - pattern: sensors/<device-id>/<measurement>
+      payload: '{"value": 23.4, "unit": "C"} or a bare number (23.4)'
+  influxdb:
+    bucket: raw_telemetry
+    measurement: sensor_data
+    tags: [device, sensor]
+  archive:
+    - path: iot/data/archive/lineprotocol/
+      format: influx-line-protocol
+    - path: iot/data/archive/raw/
+      format: jsonl-raw-mqtt
+  llm:
+    runtime: ollama
+    model: gemma4:e2b
+    tools: [list_sensors, get_stats, get_history]
+
+smoke_test: tests/smoke.sh

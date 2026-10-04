@@ -1,0 +1,17 @@
+.env
+docker-compose.override.yml
+
+# The ingest service's SQLite (keep the directory: iot/docker-compose.yml mounts it)
+iot/data/ingest/*
+!iot/data/ingest/.gitkeep
+
+# The edge device's SQLite (keep the directory: edge/docker-compose.yml mounts it)
+edge/data/*
+!edge/data/.gitkeep
+
+# p4n4-api data (users, JWT secret)
+.p4n4-api/
+
+# Demo footage the video service loops (keep the directory: edge/docker-compose.yml mounts it)
+edge/clips/*
+!edge/clips/.gitkeep

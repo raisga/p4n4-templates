@@ -1,0 +1,22 @@
+{
+  "id": "verdant",
+  "appName": "Verdant Grow Console",
+  "wordmark": { "text": "verdant", "suffix": ".grow" },
+  "platform": "verdant",
+  "tagline": "Example white-label brand for the greenhouse telemetry use case — replace or delete.",
+  "fonts": { "display": "Manrope", "mono": "DM Mono" },
+  "colors": {
+    "light": { "accent": "#3F6212", "accent2": "#365314", "onAccent": "#FFFFFF" },
+    "dark": { "accent": "#A3E635", "accent2": "#84CC16", "onAccent": "#1A2E05", "bg": "#0B1006", "bg2": "#11180A", "bg3": "#18210F", "border": "#223016", "border2": "#2E3F1E", "err": "#F87171" }
+  },
+  "tabs": ["services", "edge", "grafana"],
+  "links": [{ "label": "Greenhouse use case", "url": "https://github.com/raisga/p4n4-docs/blob/main/use-cases/greenhouse-telemetry.md" }],
+  "defaults": { "host": "localhost", "themeMode": "light", "clientTabs": "grafana" },
+  "native": {
+    "displayName": "Verdant Grow",
+    "applicationId": "com.example.verdant.grow",
+    "bundleId": "com.example.verdant.grow",
+    "company": "Verdant Growers (example)",
+    "localNetworkUsage": "Connects to your greenhouse sensors and dashboards on the local network."
+  }
+}

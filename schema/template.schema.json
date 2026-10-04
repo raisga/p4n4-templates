@@ -52,7 +52,7 @@
       }
     },
     "services": {
-      "description": "Every service in docker-compose.yml, in any order.",
+      "description": "Every Compose service, in any order: from docker-compose.yml, or from each layer's <layer>/docker-compose.yml in a multi-layer template.",
       "type": "array",
       "minItems": 1,
       "items": {
@@ -62,6 +62,10 @@
         "properties": {
           "name": {
             "type": "string"
+          },
+          "layer": {
+            "description": "Layer whose <layer>/docker-compose.yml defines the service. Required in multi-layer templates, not allowed in single-layer ones.",
+            "enum": ["iot", "ai", "edge"]
           },
           "description": {
             "type": "string"
