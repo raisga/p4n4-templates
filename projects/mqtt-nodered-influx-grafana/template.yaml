@@ -1,0 +1,59 @@
+# ==============================================================================
+# Template metadata, validated against schema/template.schema.json
+# ==============================================================================
+schema_version: 1
+name: mqtt-nodered-influx-grafana
+version: 0.1.0
+title: Greenhouse climate control · MQTT → Node-RED → actuators
+description: >-
+  Closed-loop control on top of the telemetry pipeline. Greenhouse zones
+  publish readings over MQTT; Node-RED rules switch a fan on temperature and
+  an irrigation valve on soil moisture (with hysteresis, a manual override per
+  actuator and a valve watchdog) by publishing retained commands back over
+  MQTT. Telegraf stores the readings and the commands in InfluxDB and on the
+  file system, and Grafana shows both, with the reason behind each decision.
+  A simulated greenhouse obeys the commands, so it works with no hardware.
+layers: [iot]
+tags: [mqtt, node-red, control, actuators, automation, greenhouse, influxdb, grafana, telegraf]
+maintainers:
+  - jraleman
+
+services:
+  - name: mqtt
+    description: Eclipse Mosquitto MQTT broker
+    ports: [1883, 9001]
+  - name: influxdb
+    description: InfluxDB 2 time-series database
+    ports: [8086]
+  - name: telegraf
+    description: MQTT consumer that writes readings and commands to InfluxDB and the file-system archive
+  - name: node-red
+    description: Control rules (fan, valve, manual override, watchdog) that publish actuator commands
+    ports: [1880]
+  - name: grafana
+    description: Provisioned InfluxDB datasource and the greenhouse dashboard
+    ports: [3000]
+  - name: simulator
+    description: Demo greenhouse that publishes readings and obeys the commands (compose profile "demo")
+    profile: demo
+
+data:
+  topics:
+    - pattern: sensors/<zone>/<measurement>
+      payload: '{"value": 23.4, "unit": "C"} or a bare number; temperature, humidity, soil_moisture, and fan / valve (1 or 0) as reported by the device'
+    - pattern: actuators/<zone>/<actuator>/set
+      payload: '{"state": "on", "mode": "auto", "reason": "...", "at": "<ISO 8601>"}, retained, published by Node-RED; actuator is fan or valve'
+    - pattern: actuators/<zone>/<actuator>/mode
+      payload: auto, on or off, retained, published by an operator (empty clears the override)
+  influxdb:
+    bucket: raw_telemetry
+    measurement: sensor_data
+    tags: [device, sensor]
+    # also actuator_command (tags device, actuator; fields state 1/0, mode, reason)
+  archive:
+    - path: data/archive/lineprotocol/
+      format: influx-line-protocol
+    - path: data/archive/raw/
+      format: jsonl-raw-mqtt
+
+smoke_test: tests/smoke.sh

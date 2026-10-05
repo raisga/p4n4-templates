@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6", "jsonschema>=4"]
 # ///
-"""Validate every template in the registry (or the ones named on the command line).
+"""Validate every template in the registry, projects/<name>/ (or the ones named on the command line).
 
     uv run scripts/validate.py                  # all templates
     uv run scripts/validate.py mqtt-influx-grafana
@@ -30,6 +30,8 @@ import jsonschema
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+# One directory per template, named after it
+TEMPLATES = ROOT / "projects"
 SCHEMA = json.loads((ROOT / "schema" / "template.schema.json").read_text())
 THEME_SCHEMA = json.loads((ROOT / "schema" / "theme.schema.json").read_text())
 # Fonts the dashboard falls back to when a theme doesn't set them (lib/core/brand.dart)
@@ -50,7 +52,7 @@ CAMERA_ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
 def discover() -> list[Path]:
-    return sorted(p.parent for p in ROOT.glob(f"*/{METADATA_FILE}"))
+    return sorted(p.parent for p in TEMPLATES.glob(f"*/{METADATA_FILE}"))
 
 
 def layer_dirs(template: Path, layers: list[str]) -> dict[str, Path]:

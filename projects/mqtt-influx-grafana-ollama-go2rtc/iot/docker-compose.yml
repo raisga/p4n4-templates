@@ -1,0 +1,207 @@
+services:
+
+  # ====================================================================================
+  # mqtt-influx-grafana-ollama-go2rtc: iot layer (creates p4n4-net; start it before ../ai and ../edge)
+  #   site edge devices ──HTTPS (ALPR contract 0.1)──► ingest ──┬──► ./data/ingest/ingest.db (SQLite: plates, kept RETENTION_DAYS)
+  #                                                             ├──► influxdb ──► grafana   (counts, no plates)
+  #                                                             └──► mqtt (<MQTT_TOPIC_ROOT>/<site>/…, no plates)
+  # ====================================================================================
+
+  # ------------------------------------------------------------------------------------
+  # Contract ingest: the web side of the ALPR device ↔ web contract 0.1, and the agent API
+  # ------------------------------------------------------------------------------------
+  ingest:
+    image: python:3.13-slim
+    container_name: p4n4-ingest
+    restart: unless-stopped
+    ports:
+      - "8090:8080"   # contract API (remap in docker-compose.override.yml)
+    command: ["python", "-u", "/p4n4/ingest.py"]
+    # The host user, so ./data/ingest/ingest.db is yours to read and back up
+    user: "${DATA_UID:-1000}:${DATA_GID:-1000}"
+    read_only: true
+    environment:
+      TZ: ${TZ:-UTC}
+      SITE_TZ: ${SITE_TZ:-UTC}
+      SITE_LANG: ${SITE_LANG:-en}
+      SITE_SPEED_LIMIT: ${SITE_SPEED_LIMIT:-}
+      # This site's token, plus any others (site_id:token,site_id:token)
+      INGEST_SITE_TOKENS: "${SITE_ID:-demo-road}:${SITE_TOKEN:-},${EXTRA_SITE_TOKENS:-}"
+      INGEST_READ_TOKEN: ${INGEST_READ_TOKEN:-}
+      INGEST_DEFAULT_SITE: ${SITE_ID:-demo-road}
+      INGEST_RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      INGEST_DB: /data/ingest.db
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+      MQTT_HOST: mqtt
+      MQTT_TOPIC_ROOT: ${MQTT_TOPIC_ROOT:-traffic}
+      MQTT_PLATES: ${MQTT_PLATES:-false}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./ingest:/p4n4:ro
+      - ./data/ingest:/data
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # MQTT Broker (Eclipse Mosquitto): the ingest service publishes <MQTT_TOPIC_ROOT>/<site>/…
+  # ------------------------------------------------------------------------------------
+  mqtt:
+    image: eclipse-mosquitto:2.0.22
+    container_name: p4n4-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # MQTT TCP
+      - "9001:9001"   # MQTT WebSocket
+    volumes:
+      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/uptime' -C 1 -W 3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Time-Series Database (InfluxDB 2)
+  # ------------------------------------------------------------------------------------
+  influxdb:
+    image: influxdb:2.9
+    container_name: p4n4-influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USERNAME:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:-adminpassword}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-ming}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+      DOCKER_INFLUXDB_INIT_RETENTION: ${INFLUXDB_RETENTION:-30d}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Data Visualization (Grafana)
+  # ------------------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana-oss:12.4.3
+    container_name: p4n4-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-adminpassword}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/json/traffic.json
+      # Dark UI unless the page asks for ?theme=light (p4n4-dashboard passes its
+      # own theme), the site's language, styled HTML header panel
+      GF_USERS_DEFAULT_THEME: dark
+      GF_USERS_DEFAULT_LANGUAGE: ${GRAFANA_LANGUAGE:-en-US}
+      GF_PANELS_DISABLE_SANITIZE_HTML: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Read-only access without signing in, e.g. for p4n4-dashboard's Grafana tab
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS:-false}
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Lets p4n4-dashboard's web build show Grafana in an <iframe>
+      GF_SECURITY_ALLOW_EMBEDDING: ${GRAFANA_ALLOW_EMBEDDING:-false}
+      # Path Grafana serves under: "/" (default), or e.g. "/grafana/" when
+      # p4n4-dashboard proxies it on its own origin (GRAFANA_UPSTREAM)
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s${GRAFANA_SUB_PATH:-/}"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Passed to provisioning files via env var expansion
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Demo road (profile "demo"; enabled by COMPOSE_PROFILES in .env): a synthetic
+  # two-camera ALPR device posting to the ingest service
+  # ------------------------------------------------------------------------------------
+  simulator:
+    image: python:3.13-slim
+    container_name: p4n4-simulator
+    restart: unless-stopped
+    profiles: [demo]
+    command: ["python", "-u", "/scripts/simulate.py"]
+    user: "65534:65534"
+    read_only: true
+    environment:
+      INGEST_URL: http://ingest:8080
+      INGEST_TOKEN: ${SITE_TOKEN:-}
+      SITE_ID: ${SITE_ID:-demo-road}
+      SITE_TZ: ${SITE_TZ:-UTC}
+      SIMULATOR_INTERVAL: ${SIMULATOR_INTERVAL:-15}
+      SIMULATOR_BACKFILL_DAYS: ${SIMULATOR_BACKFILL_DAYS:-7}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./scripts/simulate.py:/scripts/simulate.py:ro
+    depends_on:
+      ingest:
+        condition: service_healthy
+    networks:
+      - p4n4-net
+
+# ====================================================================================
+# NETWORKS
+# ====================================================================================
+networks:
+  p4n4-net:
+    name: p4n4-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ====================================================================================
+# VOLUMES
+# ====================================================================================
+volumes:
+  mosquitto-data:
+  mosquitto-log:
+  influxdb-data:
+  influxdb-config:
+  grafana-data:

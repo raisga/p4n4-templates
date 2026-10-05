@@ -1,6 +1,6 @@
 # Authoring a template
 
-This guide covers the conventions every template in this registry follows. [`mqtt-influx-grafana`](../mqtt-influx-grafana) is the reference implementation, so copy it when in doubt.
+This guide covers the conventions every template in this registry follows. [`mqtt-influx-grafana`](../projects/mqtt-influx-grafana) is the reference implementation, so copy it when in doubt.
 
 ## Principles
 
@@ -16,7 +16,7 @@ This guide covers the conventions every template in this registry follows. [`mqt
 ## Layout
 
 ```
-<template-name>/
+projects/<template-name>/
 ├── template.yaml        # registry metadata (schema/template.schema.json)
 ├── .p4n4.json           # project manifest: schema_version, project, layers, template
 ├── .env.example         # every variable docker-compose.yml uses, with safe defaults
@@ -35,7 +35,7 @@ This guide covers the conventions every template in this registry follows. [`mqt
 A template with more than one layer gives each layer its own directory, named after the layer, with no `docker-compose.yml` at the root. This is the layout `p4n4 init` creates for multi-layer projects (`p4n4_lib.layout`), and it is what keeps `p4n4 up`, `p4n4 down` and `p4n4 validate` working: a root compose file would make p4n4 run it as the whole project, and `p4n4 validate` expects `<layer>/docker-compose.yml` and `<layer>/.env`.
 
 ```
-<template-name>/
+projects/<template-name>/
 ├── template.yaml        # services carry `layer:`
 ├── .p4n4.json           # "layers": ["iot", "ai"]
 ├── .gitignore
@@ -55,7 +55,7 @@ A template with more than one layer gives each layer its own directory, named af
 - The iot layer creates `p4n4-net`. The others declare it `external: true` with `name: p4n4-net`, like `stacks/ai`.
 - Each layer has its own `.env.example`, documenting exactly the variables its compose file uses. A variable both layers need is repeated in both.
 - Service names must be unique across layers, and so must host ports. `scripts/validate.py` checks both, since Compose can't when the layers are separate projects.
-- The smoke test starts each layer as its own project, iot first, and points the other layers' override at the iot layer's renamed network. [`mqtt-influx-grafana-ollama`](../mqtt-influx-grafana-ollama) is the reference.
+- The smoke test starts each layer as its own project, iot first, and points the other layers' override at the iot layer's renamed network. [`mqtt-influx-grafana-ollama`](../projects/mqtt-influx-grafana-ollama) is the reference.
 
 ## `template.yaml`
 
@@ -95,7 +95,7 @@ Because of the `template` key, `p4n4 validate` checks only each layer's `docker-
 
 `theme` names a directory in the template that holds a p4n4-dashboard theme (see *Themes*).
 
-`cameras` lists the streams the Video tab shows until a user saves their own. Each has an `id` (lowercase letters, digits and dashes) and a `name`, plus either an absolute http(s) `url` or a `port` and `path` on the host the dashboard is connected to. The manifest can't know that host, so a template's own streams use `port`. The dashboard plays MJPEG and still images; [go2rtc](https://github.com/AlexxIT/go2rtc) turns RTSP cameras into MJPEG at `/api/stream.mjpeg?src=<name>`. `scripts/validate.py` checks each camera, and that a `port` is published by one of the template's services. Listing `video` requires `cameras`. [`retail-vision`](../retail-vision) is the reference.
+`cameras` lists the streams the Video tab shows until a user saves their own. Each has an `id` (lowercase letters, digits and dashes) and a `name`, plus either an absolute http(s) `url` or a `port` and `path` on the host the dashboard is connected to. The manifest can't know that host, so a template's own streams use `port`. The dashboard plays MJPEG and still images; [go2rtc](https://github.com/AlexxIT/go2rtc) turns RTSP cameras into MJPEG at `/api/stream.mjpeg?src=<name>`. `scripts/validate.py` checks each camera, and that a `port` is published by one of the template's services. Listing `video` requires `cameras`. [`mqtt-influx-grafana-ollama-go2rtc`](../projects/mqtt-influx-grafana-ollama-go2rtc) is the reference.
 
 ## Themes
 
@@ -122,7 +122,7 @@ theme/
 - create `.env` from `.env.example`, and disable demo profiles so its data is deterministic;
 - isolate itself with a `docker-compose.override.yml` in the copy that resets `container_name`, `ports`, and the network name (`!reset`), so it runs next to other stacks and on CI;
 - start the stack, push data in, and assert that every sink received it;
-- run every provisioned dashboard query and expect data (see `mqtt-influx-grafana/tests/check_dashboards.py`). An empty panel is a bug;
+- run every provisioned dashboard query and expect data (see `projects/mqtt-influx-grafana/tests/check_dashboards.py`). An empty panel is a bug;
 - tear down containers **and volumes** on exit, pass or fail (`KEEP=1` leaves them running);
 - exit `0` on success.
 
@@ -138,7 +138,7 @@ CI runs every template's smoke test on each PR.
 
 ```bash
 uv run scripts/validate.py <template-name>     # static checks
-<template-name>/tests/smoke.sh                 # end-to-end (needs Docker)
+projects/<template-name>/tests/smoke.sh        # end-to-end (needs Docker)
 ```
 
 Then add the template to the table in the root [README](../README.md).

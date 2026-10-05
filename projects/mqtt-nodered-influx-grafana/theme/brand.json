@@ -1,0 +1,22 @@
+{
+  "id": "canopy",
+  "appName": "Canopy Climate Control",
+  "wordmark": { "text": "canopy", "suffix": ".control" },
+  "platform": "canopy",
+  "tagline": "Example white-label brand for the greenhouse climate control template — replace or delete.",
+  "fonts": { "display": "Manrope", "mono": "DM Mono" },
+  "colors": {
+    "light": { "accent": "#0F766E", "accent2": "#115E59", "onAccent": "#FFFFFF" },
+    "dark": { "accent": "#2DD4BF", "accent2": "#14B8A6", "onAccent": "#042F2E", "bg": "#06100F", "bg2": "#0A1816", "bg3": "#10211F", "border": "#16302C", "border2": "#21403B", "err": "#F87171" }
+  },
+  "tabs": ["services", "edge", "grafana"],
+  "links": [{ "label": "Template README", "url": "https://github.com/raisga/p4n4-templates/tree/main/projects/mqtt-nodered-influx-grafana" }],
+  "defaults": { "host": "localhost", "themeMode": "light", "clientTabs": "grafana" },
+  "native": {
+    "displayName": "Canopy Control",
+    "applicationId": "com.example.canopy.control",
+    "bundleId": "com.example.canopy.control",
+    "company": "Canopy Growers (example)",
+    "localNetworkUsage": "Connects to your greenhouse controls and dashboards on the local network."
+  }
+}

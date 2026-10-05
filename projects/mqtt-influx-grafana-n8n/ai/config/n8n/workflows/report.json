@@ -1,0 +1,400 @@
+{
+  "id": "coldChainReports",
+  "name": "Cold chain · daily report",
+  "active": false,
+  "isArchived": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "tags": [],
+  "description": "Emails and saves the daily cold-chain record.",
+  "nodes": [
+    {
+      "id": "r-schedule",
+      "name": "Every day at 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "r-now",
+      "name": "Report now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "path": "coldchain/report",
+        "httpMethod": "GET",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "6f0c1d1e-3b8a-4c55-9a51-0c6a1f6e7b04"
+    },
+    {
+      "id": "r-period",
+      "name": "Period",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// ---- helpers ---------------------------------------------------------------\n// Settings come from the container environment (ai/.env)\nconst setting = (name, fallback) => {\n    const value = $env[name];\n    return value === undefined || value === '' ? fallback : String(value);\n};\nconst seconds = (name, fallback) => {\n    const value = Number(setting(name, fallback));\n    return (Number.isFinite(value) && value >= 0 ? value : fallback) * 1000;\n};\n// InfluxDB CSV (header row, no annotations) → array of objects\nfunction parseCsv(text) {\n    const rows = [];\n    let row = [], field = '', quoted = false;\n    for (let i = 0; i < text.length; i++) {\n        const c = text[i];\n        if (quoted) {\n            if (c === '\"' && text[i + 1] === '\"') { field += '\"'; i++; }\n            else if (c === '\"') quoted = false;\n            else field += c;\n        } else if (c === '\"') quoted = true;\n        else if (c === ',') { row.push(field); field = ''; }\n        else if (c === '\\r' || c === '\\n') {\n            if (c === '\\r' && text[i + 1] === '\\n') i++;\n            row.push(field); field = '';\n            if (row.some((v) => v !== '')) rows.push(row);\n            row = [];\n        } else field += c;\n    }\n    if (field !== '' || row.length) { row.push(field); if (row.some((v) => v !== '')) rows.push(row); }\n    const out = [];\n    let header = null;\n    for (const r of rows) {\n        if (r[1] === 'result' && r[2] === 'table') { header = r; continue; }\n        if (header) out.push(Object.fromEntries(header.map((h, i) => [h, r[i]])));\n    }\n    return out;\n}\n// Line protocol escaping\nconst tag = (v) => String(v).replace(/[\\\\, =]/g, (c) => '\\\\' + c);\nconst str = (v) => '\"' + String(v).replace(/[\\\\\"]/g, (c) => '\\\\' + c) + '\"';\nconst esc = (v) => String(v).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst fmt = (t) => (t === null || t === undefined || Number.isNaN(t) ? '–' : (Math.round(t * 10) / 10).toFixed(1) + ' °C');\nconst minutes = (ms) => Math.max(0, Math.round(ms / 60000));\nconst label = (u) => (u.name || u.id) + (u.location ? ' (' + u.location + ')' : '');\n// A time as people read it, in the project's timezone (TZ)\nconst when = (t) => DateTime.fromMillis(typeof t === 'number' ? t : Date.parse(t), { zone: setting('GENERIC_TIMEZONE', 'UTC') })\n    .toFormat('yyyy-MM-dd HH:mm ZZZZ');\n// The ack link carries a signature, so only links from an alert work\nconst crypto = require('crypto');\nconst sign = (device, excursion) => crypto.createHmac('sha256', setting('ACK_SECRET', ''))\n    .update(device + '|' + excursion).digest('hex').slice(0, 32);\n\n// The day to report on, in the project's timezone (GENERIC_TIMEZONE):\n// yesterday by default, or ?date=YYYY-MM-DD / ?date=today on the webhook\nconst zone = setting('GENERIC_TIMEZONE', 'UTC');\nconst now = DateTime.now().setZone(zone);\nconst asked = (($json.query || {}).date || '').trim();\nlet day;\nif (asked === 'today') day = now.startOf('day');\nelse if (asked) day = DateTime.fromISO(asked, { zone }).startOf('day');\nelse day = now.minus({ days: 1 }).startOf('day');\nif (!day.isValid) throw new Error('date must be YYYY-MM-DD or today, got ' + asked);\nconst end = DateTime.min(day.plus({ days: 1 }), now);\nreturn [{ json: {\n    date: day.toISODate(), zone,\n    start: day.toUTC().toISO(), stop: end.toUTC().toISO(),\n    // Excursions that started up to 30 days earlier can still be open\n    lookback: day.minus({ days: 30 }).toUTC().toISO(),\n} }];\n"
+      }
+    },
+    {
+      "id": "r-read",
+      "name": "Read units",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        440,
+        100
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/coldchain/config/units.json",
+        "options": {}
+      }
+    },
+    {
+      "id": "r-parse",
+      "name": "Parse units",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "operation": "fromJson",
+        "destinationKey": "units",
+        "options": {}
+      }
+    },
+    {
+      "id": "r-readings",
+      "name": "Query readings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.INFLUXDB_URL }}/api/v2/query?org={{ encodeURIComponent($env.INFLUXDB_ORG) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Token {{ $env.INFLUXDB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/csv"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'flux', dialect: { header: true, annotations: [] }, query: 'data = from(bucket: ' + JSON.stringify($env.INFLUXDB_BUCKET) + ')\\n  |> range(start: ' + $('Period').first().json.start + ', stop: ' + $('Period').first().json.stop + ')\\n  |> filter(fn: (r) => r._measurement == \"sensor_data\" and r.sensor == \"temperature\" and r._field == \"value\")\\n  |> keep(columns: [\"_time\", \"_value\", \"device\"])\\nunion(tables: [\\n  data |> aggregateWindow(every: 1m, fn: min, createEmpty: false) |> set(key: \"stat\", value: \"min\"),\\n  data |> aggregateWindow(every: 1m, fn: max, createEmpty: false) |> set(key: \"stat\", value: \"max\"),\\n  data |> aggregateWindow(every: 1m, fn: mean, createEmpty: false) |> set(key: \"stat\", value: \"mean\"),\\n])\\n  |> pivot(rowKey: [\"_time\", \"device\"], columnKey: [\"stat\"], valueColumn: \"_value\")\\n  |> group()' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "r-events",
+      "name": "Query events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.INFLUXDB_URL }}/api/v2/query?org={{ encodeURIComponent($env.INFLUXDB_ORG) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Token {{ $env.INFLUXDB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/csv"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'flux', dialect: { header: true, annotations: [] }, query: 'from(bucket: ' + JSON.stringify($env.INFLUXDB_BUCKET) + ')\\n  |> range(start: ' + $('Period').first().json.lookback + ', stop: ' + $('Period').first().json.stop + ')\\n  |> filter(fn: (r) => r._measurement == \"coldchain_event\")\\n  |> pivot(rowKey: [\"_time\", \"device\", \"excursion\", \"type\"], columnKey: [\"_field\"], valueColumn: \"_value\")\\n  |> group()' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "r-build",
+      "name": "Build report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// ---- helpers ---------------------------------------------------------------\n// Settings come from the container environment (ai/.env)\nconst setting = (name, fallback) => {\n    const value = $env[name];\n    return value === undefined || value === '' ? fallback : String(value);\n};\nconst seconds = (name, fallback) => {\n    const value = Number(setting(name, fallback));\n    return (Number.isFinite(value) && value >= 0 ? value : fallback) * 1000;\n};\n// InfluxDB CSV (header row, no annotations) → array of objects\nfunction parseCsv(text) {\n    const rows = [];\n    let row = [], field = '', quoted = false;\n    for (let i = 0; i < text.length; i++) {\n        const c = text[i];\n        if (quoted) {\n            if (c === '\"' && text[i + 1] === '\"') { field += '\"'; i++; }\n            else if (c === '\"') quoted = false;\n            else field += c;\n        } else if (c === '\"') quoted = true;\n        else if (c === ',') { row.push(field); field = ''; }\n        else if (c === '\\r' || c === '\\n') {\n            if (c === '\\r' && text[i + 1] === '\\n') i++;\n            row.push(field); field = '';\n            if (row.some((v) => v !== '')) rows.push(row);\n            row = [];\n        } else field += c;\n    }\n    if (field !== '' || row.length) { row.push(field); if (row.some((v) => v !== '')) rows.push(row); }\n    const out = [];\n    let header = null;\n    for (const r of rows) {\n        if (r[1] === 'result' && r[2] === 'table') { header = r; continue; }\n        if (header) out.push(Object.fromEntries(header.map((h, i) => [h, r[i]])));\n    }\n    return out;\n}\n// Line protocol escaping\nconst tag = (v) => String(v).replace(/[\\\\, =]/g, (c) => '\\\\' + c);\nconst str = (v) => '\"' + String(v).replace(/[\\\\\"]/g, (c) => '\\\\' + c) + '\"';\nconst esc = (v) => String(v).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst fmt = (t) => (t === null || t === undefined || Number.isNaN(t) ? '–' : (Math.round(t * 10) / 10).toFixed(1) + ' °C');\nconst minutes = (ms) => Math.max(0, Math.round(ms / 60000));\nconst label = (u) => (u.name || u.id) + (u.location ? ' (' + u.location + ')' : '');\n// A time as people read it, in the project's timezone (TZ)\nconst when = (t) => DateTime.fromMillis(typeof t === 'number' ? t : Date.parse(t), { zone: setting('GENERIC_TIMEZONE', 'UTC') })\n    .toFormat('yyyy-MM-dd HH:mm ZZZZ');\n// The ack link carries a signature, so only links from an alert work\nconst crypto = require('crypto');\nconst sign = (device, excursion) => crypto.createHmac('sha256', setting('ACK_SECRET', ''))\n    .update(device + '|' + excursion).digest('hex').slice(0, 32);\n\n// Daily cold-chain record: per unit, the range of temperatures, the minutes\n// out of range or without data, and every excursion with who acknowledged it\n// and the corrective action. Attached as CSV (hourly log) and saved to\n// ai/data/reports/ with an HTML copy.\nconst p = $('Period').first().json;\nconst units = $('Parse units').first().json.units;\nconst start = Date.parse(p.start), stop = Date.parse(p.stop);\nconst zone = p.zone;\nconst local = (t) => DateTime.fromMillis(t, { zone }).toFormat('yyyy-MM-dd HH:mm');\n\n// 1-minute windows: { device: [{t, min, max, mean}] }\nconst windows = {};\nfor (const r of parseCsv($('Query readings').first().json.data || '')) {\n    (windows[r.device] = windows[r.device] || []).push({ t: Date.parse(r._time), min: Number(r.min), max: Number(r.max), mean: Number(r.mean) });\n}\n// Excursions overlapping the day\nconst byEx = {};\nfor (const r of parseCsv($('Query events').first().json.data || '')) {\n    const key = r.device + '|' + r.excursion;\n    const e = (byEx[key] = byEx[key] || { device: r.device, id: r.excursion, start: Date.parse(r.excursion), events: {} });\n    e.events[r.type] = { time: Date.parse(r._time), message: r.message, temperature: r.temperature, by: r.by, action: r.action };\n}\nconst excursions = Object.values(byEx).filter((e) => e.start < stop && (!e.events.resolve || e.events.resolve.time >= start));\n\nconst expected = Math.max(0, Math.round((stop - start) / 60000));\nconst units_ = units.map((u) => {\n    const w = windows[u.id] || [];\n    const out = w.filter((x) => x.max > u.max || x.min < u.min).length;\n    const ex = excursions.filter((e) => e.device === u.id).sort((a, b) => a.start - b.start);\n    const open = ex.filter((e) => !e.events.ack);\n    return {\n        id: u.id, name: u.name || u.id, location: u.location || '', min_limit: u.min, max_limit: u.max,\n        min: w.length ? Math.min(...w.map((x) => x.min)) : null,\n        max: w.length ? Math.max(...w.map((x) => x.max)) : null,\n        mean: w.length ? w.reduce((s, x) => s + x.mean, 0) / w.length : null,\n        minutes_out_of_range: out,\n        minutes_without_data: Math.max(0, expected - w.length),\n        status: open.length ? 'ACTION NEEDED' : ex.length || out ? 'EXCURSION, ACTIONED' : 'OK',\n        excursions: ex.map((e) => ({\n            start: new Date(e.start).toISOString(),\n            end: e.events.resolve ? new Date(e.events.resolve.time).toISOString() : null,\n            minutes: minutes((e.events.resolve ? e.events.resolve.time : Date.now()) - e.start),\n            cause: e.events.start ? e.events.start.message : '',\n            alerted: !!e.events.alert, escalated: !!e.events.escalate,\n            acknowledged_by: e.events.ack ? e.events.ack.by : null,\n            corrective_action: e.events.ack ? e.events.ack.action : null,\n        })),\n    };\n});\n\n// Hourly log (CSV)\nconst csvCell = (v) => (v === null || v === undefined ? '' : /[\",\\n]/.test(String(v)) ? '\"' + String(v).replace(/\"/g, '\"\"') + '\"' : String(v));\nconst round = (v) => (v === null || v === undefined || Number.isNaN(v) ? null : Math.round(v * 10) / 10);\nconst csv = [['unit', 'name', 'hour', 'min_c', 'max_c', 'mean_c', 'minutes_out_of_range', 'limit_min_c', 'limit_max_c']];\nfor (const u of units) {\n    const hours = {};\n    for (const x of windows[u.id] || []) {\n        const h = DateTime.fromMillis(x.t - 1, { zone }).startOf('hour').toFormat('yyyy-MM-dd HH:00');\n        const s = (hours[h] = hours[h] || { min: Infinity, max: -Infinity, sum: 0, n: 0, out: 0 });\n        s.min = Math.min(s.min, x.min); s.max = Math.max(s.max, x.max); s.sum += x.mean; s.n++;\n        if (x.max > u.max || x.min < u.min) s.out++;\n    }\n    for (const [h, s] of Object.entries(hours).sort()) {\n        csv.push([u.id, u.name || u.id, h, round(s.min), round(s.max), round(s.sum / s.n), s.out, u.min, u.max]);\n    }\n}\nconst csvText = csv.map((r) => r.map(csvCell).join(',')).join('\\n') + '\\n';\n\n// Email and HTML copy\nconst attention = units_.filter((u) => u.status === 'ACTION NEEDED').length;\nconst subject = '[Cold chain] Daily record ' + p.date + (attention ? ': ' + attention + ' unit(s) need corrective action' : ': all units OK');\nconst color = { 'OK': '#15803d', 'EXCURSION, ACTIONED': '#b45309', 'ACTION NEEDED': '#b91c1c' };\nconst td = (v) => '<td>' + esc(v === null || v === undefined ? '–' : v) + '</td>';\nlet html = '<!doctype html><html><head><meta charset=\"utf-8\"><title>' + esc(subject) + '</title></head>'\n    + '<body style=\"font-family:system-ui,sans-serif\"><h2>Cold-chain record, ' + esc(p.date) + ' (' + esc(zone) + ')</h2>'\n    + '<table cellpadding=\"6\" style=\"border-collapse:collapse\" border=\"1\"><tr><th>Unit</th><th>Limits</th><th>Min</th><th>Max</th><th>Mean</th>'\n    + '<th>Min out of range</th><th>Min without data</th><th>Status</th></tr>';\nfor (const u of units_) {\n    html += '<tr>' + td(u.name + (u.location ? ' (' + u.location + ')' : '')) + td(u.min_limit + '–' + u.max_limit + ' °C')\n        + td(fmt(u.min)) + td(fmt(u.max)) + td(fmt(u.mean)) + td(u.minutes_out_of_range) + td(u.minutes_without_data)\n        + '<td style=\"color:' + color[u.status] + ';font-weight:600\">' + esc(u.status) + '</td></tr>';\n}\nhtml += '</table>';\nconst all = units_.flatMap((u) => u.excursions.map((e) => ({ unit: u.name, ...e })));\nif (all.length) {\n    html += '<h3>Excursions</h3><table cellpadding=\"6\" style=\"border-collapse:collapse\" border=\"1\"><tr><th>Unit</th><th>Start</th>'\n        + '<th>End</th><th>Minutes</th><th>Cause</th><th>Escalated</th><th>Acknowledged by</th><th>Corrective action</th></tr>';\n    for (const e of all) {\n        html += '<tr>' + td(e.unit) + td(local(Date.parse(e.start))) + td(e.end ? local(Date.parse(e.end)) : 'ongoing')\n            + td(e.minutes) + td(e.cause) + td(e.escalated ? 'yes' : 'no') + td(e.acknowledged_by || 'NOT ACKNOWLEDGED') + td(e.corrective_action) + '</tr>';\n    }\n    html += '</table>';\n}\nhtml += '<p style=\"color:#666\">Hourly log attached as CSV. Generated ' + esc(DateTime.now().setZone(zone).toISO()) + '.</p></body></html>';\n\nconst b64 = (s) => Buffer.from(s, 'utf8').toString('base64');\nconst name = 'coldchain-' + p.date;\nreturn [{\n    json: { date: p.date, subject, html, attention, units: units_, files: [name + '.csv', name + '.html'] },\n    binary: {\n        csv: { data: b64(csvText), mimeType: 'text/csv', fileName: name + '.csv' },\n        html: { data: b64(html), mimeType: 'text/html', fileName: name + '.html' },\n    },\n}];\n"
+      }
+    },
+    {
+      "id": "r-save-csv",
+      "name": "Save CSV",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        100
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/coldchain/reports/{{ $json.files[0] }}",
+        "dataPropertyName": "csv",
+        "options": {}
+      }
+    },
+    {
+      "id": "r-save-html",
+      "name": "Save HTML",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        100
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/coldchain/reports/{{ $json.files[1] }}",
+        "dataPropertyName": "html",
+        "options": {}
+      }
+    },
+    {
+      "id": "r-email",
+      "name": "Email report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1980,
+        100
+      ],
+      "parameters": {
+        "fromEmail": "={{ $env.EMAIL_FROM }}",
+        "toEmail": "={{ $env.REPORT_EMAIL_TO }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false,
+          "attachments": "csv"
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "coldchainSmtp",
+          "name": "Cold chain SMTP"
+        }
+      }
+    },
+    {
+      "id": "r-result",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// The webhook's response\nconst r = $('Build report').first().json;\nreturn [{ json: { date: r.date, subject: r.subject, attention: r.attention, files: r.files, units: r.units } }];"
+      }
+    },
+    {
+      "id": "r-note",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        220,
+        -280
+      ],
+      "parameters": {
+        "width": 560,
+        "height": 220,
+        "content": "## Daily cold-chain record\nAt 07:00 (`GENERIC_TIMEZONE`), reports on the previous day: per unit the min, max and mean, minutes out of range and without data, and each excursion with who acknowledged it and the corrective action. Saved to `ai/data/reports/` (CSV + HTML) and emailed to `REPORT_EMAIL_TO`.\n\n`GET /webhook/coldchain/report?date=YYYY-MM-DD` (or `?date=today`) runs it now."
+      }
+    }
+  ],
+  "connections": {
+    "Every day at 07:00": {
+      "main": [
+        [
+          {
+            "node": "Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report now": {
+      "main": [
+        [
+          {
+            "node": "Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Period": {
+      "main": [
+        [
+          {
+            "node": "Read units",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read units": {
+      "main": [
+        [
+          {
+            "node": "Parse units",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse units": {
+      "main": [
+        [
+          {
+            "node": "Query readings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query readings": {
+      "main": [
+        [
+          {
+            "node": "Query events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query events": {
+      "main": [
+        [
+          {
+            "node": "Build report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build report": {
+      "main": [
+        [
+          {
+            "node": "Save CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save CSV": {
+      "main": [
+        [
+          {
+            "node": "Save HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save HTML": {
+      "main": [
+        [
+          {
+            "node": "Email report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email report": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "versionId": "37fb913e-b03e-5fec-b157-39182551d3e4"
+}

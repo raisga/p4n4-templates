@@ -1,0 +1,158 @@
+services:
+
+  # ====================================================================================
+  # mqtt-influx-grafana-ollama-letta: ai layer (joins p4n4-net, which ../iot creates)
+  #   p4n4-dashboard Agent tab ──► p4n4-api ──► letta :8283 (agent with memory)
+  #                                              ├──► gateway ──► ollama :11434 (chat + embeddings)
+  #                                              └──► influxdb (tools: readings, maintenance log)
+  #   letta-init: creates the tools and the agent, seeds its memory (first start)
+  # ====================================================================================
+
+  # ------------------------------------------------------------------------------------
+  # Local LLM (Ollama): the agent's chat model and the embeddings for its memory
+  # ------------------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:0.35.1
+    # Ollama's usual name and port, so p4n4-api finds it with no configuration
+    container_name: p4n4-ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_BIND:-127.0.0.1}:11434:11434"
+    # entrypoint.sh pulls OLLAMA_MODEL and OLLAMA_EMBED_MODEL on first start
+    entrypoint: ["/bin/sh", "/p4n4/entrypoint.sh"]
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+      # "-", not ":-": empty means pull nothing
+      OLLAMA_MODEL: ${OLLAMA_MODEL-gemma4:e2b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL-nomic-embed-text}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      # Ollama's default (4096 tokens without a large GPU) is smaller than
+      # Letta's prompt: its instructions, memory blocks and tools
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-16384}
+    volumes:
+      - ./config/ollama/entrypoint.sh:/p4n4/entrypoint.sh:ro
+      - ollama-data:/root/.ollama
+    healthcheck:
+      # Healthy once both models are there: Letta reads Ollama's models only
+      # when it starts, so it waits for this
+      test: ["CMD-SHELL", "ollama list >/dev/null && for m in $$OLLAMA_MODEL $$OLLAMA_EMBED_MODEL; do ollama show $$m >/dev/null || exit 1; done"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # The first start pulls about 5 GB
+      start_period: 60m
+      start_interval: 10s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Gateway between Letta and Ollama: turns thinking off (AGENT_THINK=false)
+  # ------------------------------------------------------------------------------------
+  gateway:
+    image: python:3.13-slim
+    container_name: p4n4-ollama-gateway
+    restart: unless-stopped
+    command: ["python", "-u", "/p4n4/gateway.py"]
+    user: "65534:65534"
+    read_only: true
+    environment:
+      UPSTREAM: http://ollama:11434
+      AGENT_THINK: ${AGENT_THINK:-false}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./config/gateway:/p4n4:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:11434/api/version', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Agents with memory (Letta)
+  # ------------------------------------------------------------------------------------
+  letta:
+    # Pinned: letta/letta:latest is now Letta's Code App Server, a different
+    # product. 0.16 is the server p4n4-api's agent endpoints use (/v1/agents/).
+    image: letta/letta:0.16.8
+    container_name: p4n4-letta
+    restart: unless-stopped
+    ports:
+      - "${LETTA_BIND:-127.0.0.1}:8283:8283"
+    environment:
+      # Require LETTA_SERVER_PASSWORD (as "Authorization: Bearer <password>")
+      SECURE: "true"
+      LETTA_SERVER_PASSWORD: ${LETTA_SERVER_PASSWORD:-lettapassword}
+      # Empty: the Postgres bundled in the image
+      LETTA_PG_URI: ""
+      # Ollama, through the gateway. With /v1: Letta calls Ollama's
+      # OpenAI-compatible API for chat and embeddings (without it, embeddings
+      # go to a path Ollama doesn't serve)
+      OLLAMA_BASE_URL: http://gateway:11434/v1
+      TZ: ${TZ:-UTC}
+    volumes:
+      # Agents, their memory and the tools live in the bundled Postgres
+      - letta-pgdata:/var/lib/postgresql/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8283/v1/health/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+      start_interval: 5s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Provisioning: tools, the agent and its first memories (runs and exits)
+  # ------------------------------------------------------------------------------------
+  letta-init:
+    image: python:3.13-slim
+    container_name: p4n4-letta-init
+    restart: "no"
+    command: ["python", "-u", "/p4n4/provision.py"]
+    user: "65534:65534"
+    read_only: true
+    environment:
+      LETTA_URL: http://letta:8283
+      LETTA_SERVER_PASSWORD: ${LETTA_SERVER_PASSWORD:-lettapassword}
+      AGENT_NAME: ${AGENT_NAME:-maintenance-assistant}
+      OLLAMA_MODEL: ${OLLAMA_MODEL-gemma4:e2b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL-nomic-embed-text}
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-16384}
+      TZ: ${TZ:-UTC}
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./config/letta:/p4n4:ro
+    depends_on:
+      letta:
+        condition: service_healthy
+    networks:
+      - p4n4-net
+
+# ====================================================================================
+# NETWORKS
+# ====================================================================================
+networks:
+  p4n4-net:
+    external: true
+    name: p4n4-net
+
+# ====================================================================================
+# VOLUMES
+# ====================================================================================
+volumes:
+  ollama-data:
+  letta-pgdata:

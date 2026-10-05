@@ -1,0 +1,22 @@
+[
+  {
+    "days_ago": 62,
+    "tags": ["pump-2", "incident"],
+    "text": "pump-2: drive-end bearing failure. Vibration rose steadily from 2.3 to 7.0 mm/s over about three weeks, and bearing temperature from 49 to 68 °C in the last week before the failure; the pump tripped on overload. Root cause: the 2000-hour re-greasing was missed. Bearing replaced and the pump realigned; vibration back to 2.1 mm/s. Technician: M. Ortiz."
+  },
+  {
+    "days_ago": 47,
+    "tags": ["fan-1", "maintenance"],
+    "text": "fan-1: short vibration spikes up to 5 mm/s at start-up for a few days. Belt found slack and glazed; belt replaced and retensioned. Spikes gone. Technician: J. Park."
+  },
+  {
+    "days_ago": 21,
+    "tags": ["pump-1", "maintenance"],
+    "text": "pump-1: mechanical seal leaking. Seal replaced. Vibration unaffected (1.8 mm/s). Technician: M. Ortiz."
+  },
+  {
+    "days_ago": 14,
+    "tags": ["pump-1", "pump-2", "maintenance"],
+    "text": "Lubrication round: pump-1 bearings re-greased. pump-2 skipped, the grease gun was empty; to be done next round. Technician: J. Park."
+  }
+]

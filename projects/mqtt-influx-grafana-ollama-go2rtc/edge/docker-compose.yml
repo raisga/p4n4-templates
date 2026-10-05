@@ -1,0 +1,87 @@
+services:
+
+  # ====================================================================================
+  # mqtt-influx-grafana-ollama-go2rtc: edge layer, at the site (on the ALPR device, or a box next to it)
+  #   road camera (RTSP/MJPEG) ──► video :1984 ──MJPEG──► p4n4-dashboard Video tab
+  #   device's plate view ───────┘  (or clips/*.mp4 on a loop; or test patterns)
+  #   device SQLite (./data) ──► uplink ──HTTPS (ALPR contract 0.1)──► ingest (../iot)
+  # Joins p4n4-net: on the same host as ../iot, start that first; on a machine of its
+  # own, `docker network create p4n4-net` once.
+  # ====================================================================================
+
+  # ------------------------------------------------------------------------------------
+  # Video (go2rtc): the road camera and the device's annotated view, as MJPEG
+  # ------------------------------------------------------------------------------------
+  video:
+    image: alexxit/go2rtc:1.9.14
+    container_name: p4n4-video
+    restart: unless-stopped
+    ports:
+      - "1984:1984"   # MJPEG streams, snapshots and go2rtc's web UI: site network only
+    # video.sh writes go2rtc's config from CAMERA_URL / OVERLAY_URL, then runs it
+    entrypoint: ["/bin/sh", "/p4n4/video.sh"]
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      CAMERA_URL: ${CAMERA_URL:-}
+      OVERLAY_URL: ${OVERLAY_URL:-}
+    volumes:
+      - ./config/go2rtc/video.sh:/p4n4/video.sh:ro
+      # road.mp4 / plates.mp4 to loop in place of CAMERA_URL / OVERLAY_URL
+      - ./clips:/p4n4/clips:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:1984/api"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Uplink (profile "device"): the device's SQLite → the ingest service, as contract
+  # 0.1 says. Enable it once a device writes its database into DEVICE_DATA
+  # ------------------------------------------------------------------------------------
+  uplink:
+    image: python:3.13-slim
+    container_name: p4n4-uplink
+    restart: unless-stopped
+    profiles: [device]
+    command: ["python", "-u", "/p4n4/uplink.py"]
+    read_only: true
+    environment:
+      TZ: ${TZ:-UTC}
+      DEVICE_DB: /data/alpr_live.db
+      DEVICE_API: ${DEVICE_API:-}
+      DEVICE_CAMERAS: ${DEVICE_CAMERAS:-2}
+      INGEST_URL: ${INGEST_URL:-http://ingest:8080}
+      INGEST_TOKEN: ${SITE_TOKEN:-}
+      SITE_ID: ${SITE_ID:-}
+      NODE_NAME: ${NODE_NAME:-edge-01}
+      JETPACK_VERSION: ${JETPACK_VERSION:-}
+      POWER_MODE: ${POWER_MODE:-}
+      STATE_FILE: /state/uplink.json
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./uplink:/p4n4:ro
+      # Read only in practice (it opens the file with mode=ro), but SQLite needs the
+      # directory writable to read a database another process is writing
+      - ${DEVICE_DATA:-./data}:/data
+      - uplink-state:/state
+    networks:
+      - p4n4-net
+
+# ====================================================================================
+# NETWORKS
+# ====================================================================================
+networks:
+  p4n4-net:
+    external: true
+    name: p4n4-net
+
+# ====================================================================================
+# VOLUMES
+# ====================================================================================
+volumes:
+  uplink-state:

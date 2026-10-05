@@ -1,0 +1,125 @@
+services:
+
+  # ====================================================================================
+  # mqtt-influx-grafana-n8n: ai layer (joins p4n4-net, which ../iot creates)
+  #   n8n :5678 ──► influxdb (readings in; excursion events, status and limits out)
+  #     ├──► email (SMTP_*: mailpit by default) · Slack · Telegram
+  #     └──► ./data/reports (daily record, CSV + HTML)
+  # ====================================================================================
+
+  # ------------------------------------------------------------------------------------
+  # Workflow automation (n8n): monitor, acknowledge, daily report
+  # ------------------------------------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:2.41.6
+    container_name: p4n4-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    # entrypoint.sh provisions the owner, the SMTP credential and the workflows
+    entrypoint: ["tini", "--", "/bin/sh", "/p4n4/entrypoint.sh"]
+    environment:
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      # Base of the acknowledge links in alert emails: must be reachable by
+      # whoever reads them
+      N8N_WEBHOOK_URL: http://${N8N_HOST:-localhost}:5678/
+      # Plain http on a LAN: without this, logins only work on localhost
+      N8N_SECURE_COOKIE: "false"
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-change-me-32-char-encryption-key}
+      N8N_INSTANCE_OWNER_MANAGED_BY_ENV: "true"
+      N8N_INSTANCE_OWNER_EMAIL: ${N8N_OWNER_EMAIL:-admin@example.com}
+      N8N_OWNER_PASSWORD: ${N8N_OWNER_PASSWORD:-}
+      N8N_REIMPORT_WORKFLOWS: ${N8N_REIMPORT_WORKFLOWS:-false}
+      # Schedules and report dates use the project's timezone
+      GENERIC_TIMEZONE: ${TZ:-UTC}
+      TZ: ${TZ:-UTC}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_RUNNERS_TASK_TIMEOUT: 300
+      # One execution at a time: a scheduled check and a POST to
+      # /webhook/coldchain/check can't both see "not alerted yet" and both
+      # send the alert. Runs take about a second, so others just queue.
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: 1
+      # The workflows read their settings with $env, sign ack links with
+      # crypto, and only touch files under /coldchain
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      N8N_RESTRICT_FILE_ACCESS_TO: /coldchain
+      # Rules
+      ALERT_DELAY: ${ALERT_DELAY:-900}
+      ESCALATE_AFTER: ${ESCALATE_AFTER:-1800}
+      OFFLINE_AFTER: ${OFFLINE_AFTER:-600}
+      ACK_SECRET: ${ACK_SECRET:-}
+      # Notifications
+      EMAIL_FROM: ${EMAIL_FROM:-coldchain@example.com}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      ESCALATION_EMAIL_TO: ${ESCALATION_EMAIL_TO:-}
+      REPORT_EMAIL_TO: ${REPORT_EMAIL_TO:-}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # InfluxDB (must match iot/.env); n8n reads readings and writes events
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+    volumes:
+      - n8n-data:/home/node/.n8n
+      - ./config/n8n/entrypoint.sh:/p4n4/entrypoint.sh:ro
+      - ./config/n8n/workflows:/p4n4/workflows:ro
+      - ./config/coldchain:/coldchain/config:ro
+      # n8n runs as uid 1000; see README if that isn't you
+      - ./data/reports:/coldchain/reports
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:5678/healthz/readiness || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Provisioning runs n8n's CLI several times before the server starts
+      start_period: 120s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Local inbox (Mailpit; profile "mailpit"): catches every email n8n sends
+  # ------------------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:v1.27
+    container_name: p4n4-mailpit
+    restart: unless-stopped
+    profiles: [mailpit]
+    ports:
+      - "8025:8025"   # web inbox
+    environment:
+      MP_MAX_MESSAGES: 5000
+      TZ: ${TZ:-UTC}
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - p4n4-net
+
+# ====================================================================================
+# NETWORKS
+# ====================================================================================
+networks:
+  p4n4-net:
+    external: true
+    name: p4n4-net
+
+# ====================================================================================
+# VOLUMES
+# ====================================================================================
+volumes:
+  n8n-data:

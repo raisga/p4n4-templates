@@ -1,0 +1,77 @@
+# ==============================================================================
+# Template metadata, validated against schema/template.schema.json
+# ==============================================================================
+schema_version: 1
+name: mqtt-influx-grafana-n8n
+version: 0.1.0
+title: Cold-chain compliance · alerts, escalation and daily records with n8n
+description: >-
+  Temperature monitoring for fridges, freezers and cold rooms (food safety,
+  pharmacy, lab). Units publish readings over MQTT into InfluxDB; n8n
+  workflows detect excursions against each unit's limits, alert by email
+  after a grace period, escalate when nobody acknowledges, take the
+  acknowledgement and corrective action through a signed link, and email and
+  save a daily record (CSV + HTML). Every decision is logged in InfluxDB and
+  shown in Grafana. Works with no accounts: a local Mailpit inbox catches the
+  emails, and simulated cold rooms include a door left open. Slack and
+  Telegram are optional extra channels.
+layers: [iot, ai]
+tags: [cold-chain, haccp, food-safety, compliance, alerting, n8n, email, mqtt, influxdb, grafana, telegraf]
+maintainers:
+  - jraleman
+
+services:
+  - name: mqtt
+    layer: iot
+    description: Eclipse Mosquitto MQTT broker
+    ports: [1883, 9001]
+  - name: influxdb
+    layer: iot
+    description: InfluxDB 2 time-series database (readings, and the excursion log n8n writes)
+    ports: [8086]
+  - name: telegraf
+    layer: iot
+    description: MQTT consumer that writes to InfluxDB and the file-system archive
+  - name: grafana
+    layer: iot
+    description: Provisioned InfluxDB datasource and the cold chain dashboard
+    ports: [3000]
+  - name: simulator
+    layer: iot
+    description: Demo cold rooms, one with a door left open now and then (compose profile "demo")
+    profile: demo
+  - name: n8n
+    layer: ai
+    description: Workflows that monitor, alert, escalate, take acknowledgements and send the daily record
+    ports: [5678]
+  - name: mailpit
+    layer: ai
+    description: Local inbox that catches every email n8n sends (compose profile "mailpit")
+    profile: mailpit
+    ports: [8025]
+
+data:
+  topics:
+    - pattern: sensors/<unit>/temperature
+      payload: '{"value": 4.6, "unit": "C"} or a bare number (°C)'
+    - pattern: sensors/<unit>/door
+      payload: 1 (open) or 0 (closed); optional, shown on the dashboard and in alerts
+  influxdb:
+    bucket: raw_telemetry
+    measurement: sensor_data
+    tags: [device, sensor]
+    # n8n also writes coldchain_event (tags device, excursion, type: start |
+    # alert | escalate | ack | resolve), coldchain_status and coldchain_limit
+  config:
+    - path: ai/config/coldchain/units.json
+      format: json
+      contents: one entry per unit with id, name, location, min and max (°C)
+  archive:
+    - path: iot/data/archive/lineprotocol/
+      format: influx-line-protocol
+    - path: iot/data/archive/raw/
+      format: jsonl-raw-mqtt
+    - path: ai/data/reports/
+      format: daily record, coldchain-<date>.csv and .html
+
+smoke_test: tests/smoke.sh

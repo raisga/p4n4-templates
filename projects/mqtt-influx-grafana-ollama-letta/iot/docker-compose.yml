@@ -1,0 +1,195 @@
+services:
+
+  # ====================================================================================
+  # mqtt-influx-grafana-ollama-letta: iot layer (creates p4n4-net; start it before ../ai)
+  #   machines ──MQTT──► mqtt ──► telegraf ──┬──► influxdb ◄──► letta (../ai: agent tools)
+  #                                          │       └──► grafana
+  #                                          └──► ./data/archive (file system)
+  # ====================================================================================
+
+  # ------------------------------------------------------------------------------------
+  # MQTT Broker (Eclipse Mosquitto)
+  # ------------------------------------------------------------------------------------
+  mqtt:
+    image: eclipse-mosquitto:2.0.22
+    container_name: p4n4-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # MQTT TCP
+      - "9001:9001"   # MQTT WebSocket
+    # bridge.sh writes the external-broker bridge config from MQTT_REMOTE_*
+    # (a no-op when MQTT_REMOTE_HOST is empty), then runs the image entrypoint
+    entrypoint: ["/bin/sh", "/p4n4/bridge.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    environment:
+      MQTT_REMOTE_HOST: ${MQTT_REMOTE_HOST:-}
+      MQTT_REMOTE_PORT: ${MQTT_REMOTE_PORT:-}
+      MQTT_REMOTE_USER: ${MQTT_REMOTE_USER:-}
+      MQTT_REMOTE_PASSWORD: ${MQTT_REMOTE_PASSWORD:-}
+      MQTT_REMOTE_TOPICS: ${MQTT_REMOTE_TOPICS:-sensors/#}
+      MQTT_REMOTE_PREFIX: ${MQTT_REMOTE_PREFIX:-}
+      MQTT_REMOTE_QOS: ${MQTT_REMOTE_QOS:-0}
+      MQTT_REMOTE_CLIENT_ID: ${MQTT_REMOTE_CLIENT_ID:-}
+      MQTT_REMOTE_TLS: ${MQTT_REMOTE_TLS:-false}
+      MQTT_REMOTE_CA_FILE: ${MQTT_REMOTE_CA_FILE:-}
+      MQTT_REMOTE_CERT_FILE: ${MQTT_REMOTE_CERT_FILE:-}
+      MQTT_REMOTE_KEY_FILE: ${MQTT_REMOTE_KEY_FILE:-}
+    volumes:
+      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./config/mosquitto/bridge.sh:/p4n4/bridge.sh:ro
+      - ./config/mosquitto/certs:/mosquitto/certs:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/uptime' -C 1 -W 3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Time-Series Database (InfluxDB 2)
+  # ------------------------------------------------------------------------------------
+  influxdb:
+    image: influxdb:2.9
+    container_name: p4n4-influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USERNAME:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:-adminpassword}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-ming}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+      DOCKER_INFLUXDB_INIT_RETENTION: ${INFLUXDB_RETENTION:-30d}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Ingest (Telegraf): MQTT → InfluxDB + file-system archive
+  # ------------------------------------------------------------------------------------
+  telegraf:
+    image: telegraf:1.40
+    container_name: p4n4-telegraf
+    restart: unless-stopped
+    # Run as the host user so archive files in ./data are readable without sudo
+    user: "${ARCHIVE_UID:-1000}:${ARCHIVE_GID:-1000}"
+    environment:
+      TZ: ${TZ:-UTC}
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+      ARCHIVE_ROTATION_INTERVAL: ${ARCHIVE_ROTATION_INTERVAL:-24h}
+    volumes:
+      - ./config/telegraf:/etc/telegraf:ro
+      - ./data/archive:/archive
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Data Visualization (Grafana)
+  # ------------------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana-oss:12.4.3
+    container_name: p4n4-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-adminpassword}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/json/equipment.json
+      # Read-only access without signing in, e.g. for p4n4-dashboard's Grafana tab
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS:-false}
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Lets p4n4-dashboard's web build show Grafana in an <iframe>
+      GF_SECURITY_ALLOW_EMBEDDING: ${GRAFANA_ALLOW_EMBEDDING:-false}
+      # Path Grafana serves under: "/" (default), or e.g. "/grafana/" when
+      # p4n4-dashboard proxies it on its own origin (GRAFANA_UPSTREAM)
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s${GRAFANA_SUB_PATH:-/}"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Passed to provisioning files via env var expansion
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Demo publisher (profile "demo"; enabled by COMPOSE_PROFILES in .env)
+  # ------------------------------------------------------------------------------------
+  simulator:
+    image: eclipse-mosquitto:2.0.22
+    container_name: p4n4-simulator
+    restart: unless-stopped
+    profiles: [demo]
+    entrypoint: ["/bin/sh", "/scripts/simulate.sh"]
+    environment:
+      MQTT_HOST: mqtt
+      SIMULATOR_INTERVAL: ${SIMULATOR_INTERVAL:-10}
+      SIMULATOR_BACKFILL_DAYS: ${SIMULATOR_BACKFILL_DAYS:-14}
+      # The backfill writes history straight into InfluxDB
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+    volumes:
+      - ./scripts/simulate.sh:/scripts/simulate.sh:ro
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    networks:
+      - p4n4-net
+
+# ====================================================================================
+# NETWORKS
+# ====================================================================================
+networks:
+  p4n4-net:
+    name: p4n4-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ====================================================================================
+# VOLUMES
+# ====================================================================================
+volumes:
+  mosquitto-data:
+  mosquitto-log:
+  influxdb-data:
+  influxdb-config:
+  grafana-data:

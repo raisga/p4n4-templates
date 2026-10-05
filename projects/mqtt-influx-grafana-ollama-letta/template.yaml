@@ -1,0 +1,81 @@
+# ==============================================================================
+# Template metadata, validated against schema/template.schema.json
+# ==============================================================================
+schema_version: 1
+name: mqtt-influx-grafana-ollama-letta
+version: 0.1.0
+title: Maintenance assistant with memory · Letta + Ollama on equipment telemetry
+description: >-
+  Condition monitoring for pumps and fans (vibration, bearing temperature,
+  motor current) plus a Letta agent, on a local Ollama model, that the
+  maintenance team talks to from p4n4-dashboard's Agent tab. Unlike a plain
+  chat model it remembers: an equipment register in its core memory, past
+  incidents and repairs in its archival memory, and what the team tells it.
+  It reads trends from InfluxDB through tools and logs reported maintenance
+  to both its memory and InfluxDB, where Grafana shows it. The demo comes
+  with two weeks of history in which pump-2 repeats the vibration pattern
+  that preceded its last bearing failure.
+layers: [iot, ai]
+tags: [maintenance, condition-monitoring, vibration, predictive-maintenance, letta, memory, agent, ollama, llm, mqtt, influxdb, grafana]
+maintainers:
+  - jraleman
+
+services:
+  - name: mqtt
+    layer: iot
+    description: Eclipse Mosquitto MQTT broker
+    ports: [1883, 9001]
+  - name: influxdb
+    layer: iot
+    description: InfluxDB 2 time-series database (readings, and the maintenance log the agent writes)
+    ports: [8086]
+  - name: telegraf
+    layer: iot
+    description: MQTT consumer that writes to InfluxDB and the file-system archive
+  - name: grafana
+    layer: iot
+    description: Provisioned InfluxDB datasource and the equipment health dashboard
+    ports: [3000]
+  - name: simulator
+    layer: iot
+    description: Demo machines with two weeks of backfilled history, pump-2's bearing wearing (compose profile "demo")
+    profile: demo
+  - name: ollama
+    layer: ai
+    description: Local LLM (OLLAMA_MODEL) and embeddings (OLLAMA_EMBED_MODEL) for the agent
+    ports: [11434]
+  - name: gateway
+    layer: ai
+    description: Passes Letta's requests to Ollama, with thinking turned off when AGENT_THINK=false
+  - name: letta
+    layer: ai
+    description: Letta server; the maintenance agent with core and archival memory and InfluxDB tools
+    ports: [8283]
+  - name: letta-init
+    layer: ai
+    description: Creates the tools and the agent and seeds its memory on first start; refreshes the tools later (runs and exits)
+
+data:
+  topics:
+    - pattern: sensors/<machine>/<sensor>
+      payload: '{"value": 2.31, "unit": "mm/s"}; sensors vibration (mm/s RMS), bearing_temp (°C), current (A)'
+  influxdb:
+    bucket: raw_telemetry
+    measurement: sensor_data
+    tags: [device, sensor]
+    # the agent's log_maintenance tool also writes maintenance_event
+    # (tags device, source; fields work, technician)
+  config:
+    - path: ai/config/letta/equipment.md
+      format: markdown
+      contents: the agent's equipment register (core memory block), used on first start
+    - path: ai/config/letta/history.json
+      format: json
+      contents: past incidents seeded into archival memory, dated relative to the first start
+  archive:
+    - path: iot/data/archive/lineprotocol/
+      format: influx-line-protocol
+    - path: iot/data/archive/raw/
+      format: jsonl-raw-mqtt
+
+smoke_test: tests/smoke.sh

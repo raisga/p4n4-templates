@@ -1,0 +1,10 @@
+.env
+docker-compose.override.yml
+
+# File-system archive written by Telegraf (keep the directories)
+iot/data/archive/**/*
+!iot/data/archive/**/.gitkeep
+
+# Broker certificates (keep the directory: iot/docker-compose.yml mounts it)
+iot/config/mosquitto/certs/*
+!iot/config/mosquitto/certs/.gitkeep

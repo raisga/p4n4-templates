@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "project": "mqtt-influx-grafana-ollama-letta",
+  "layers": [
+    "iot",
+    "ai"
+  ],
+  "template": {
+    "name": "mqtt-influx-grafana-ollama-letta",
+    "version": "0.1.0"
+  },
+  "dashboard": {
+    "grafana_path": "/d/p4n4-equipment/equipment-health",
+    "tabs": [
+      "services",
+      "edge",
+      "agent",
+      "grafana"
+    ],
+    "theme": "theme"
+  }
+}

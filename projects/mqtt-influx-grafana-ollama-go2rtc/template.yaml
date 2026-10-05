@@ -1,0 +1,79 @@
+# ==============================================================================
+# Template metadata, validated against schema/template.schema.json
+# ==============================================================================
+schema_version: 1
+name: mqtt-influx-grafana-ollama-go2rtc
+version: 0.3.0
+title: ALPR road traffic · counts, plates and video
+description: >-
+  Road traffic counting with automatic licence plate recognition (ALPR). An
+  edge device at the site (e.g. a Jetson running an ALPR service) reads the
+  plates of the vehicles two cameras see and posts them under the ALPR
+  device ↔ web contract 0.1; an ingest service checks them, keeps them in
+  SQLite for a retention period (RETENTION_DAYS, then deleted) and copies
+  counts without plates to InfluxDB and MQTT. Grafana shows vehicles per
+  direction and type, plates read per camera, speeds and the device's
+  health; p4n4-dashboard's Video tab plays the road camera and the device's
+  plate view through go2rtc; and a local LLM (Gemma 4 E2B on Ollama) answers
+  questions in the Agent tab with the ingest service's deterministic numbers,
+  plate lookups included. A demo road and synthetic video make it work with
+  no hardware.
+layers: [iot, ai, edge]
+tags: [alpr, anpr, traffic, computer-vision, video, go2rtc, jetson, influxdb, grafana, mqtt, ollama, llm]
+maintainers:
+  - jraleman
+
+services:
+  - name: ingest
+    layer: iot
+    description: ALPR device ↔ web contract 0.1 (plate reads, heartbeat) and the agent API, on SQLite with a retention period
+    ports: [8090]
+  - name: mqtt
+    layer: iot
+    description: Eclipse Mosquitto MQTT broker; the ingest service publishes <MQTT_TOPIC_ROOT>/<site>/… without plates
+    ports: [1883, 9001]
+  - name: influxdb
+    layer: iot
+    description: InfluxDB 2 time-series database (counts, no plates)
+    ports: [8086]
+  - name: grafana
+    layer: iot
+    description: Provisioned InfluxDB datasource and the traffic dashboard
+    ports: [3000]
+  - name: simulator
+    layer: iot
+    description: Demo road posting synthetic plate reads (compose profile "demo")
+    profile: demo
+  - name: agent
+    layer: ai
+    description: Ollama API for p4n4-dashboard's Agent tab, with tools that query the ingest service and InfluxDB
+    ports: [11434]
+  - name: ollama
+    layer: ai
+    description: Local LLM (OLLAMA_MODEL, default gemma4:e2b), reached through the agent
+  - name: video
+    layer: edge
+    description: go2rtc serving the road camera and the device's plate view as MJPEG for the Video tab (demo patterns without them)
+    ports: [1984]
+  - name: uplink
+    layer: edge
+    description: Forwards an ALPR device's SQLite to the ingest service, plus a heartbeat every 30 s (compose profile "device")
+    profile: device
+
+data:
+  topics:
+    - pattern: traffic/<site-id>/read/<direction>
+      payload: contract 0.1 read JSON without plate, plate_region and evidence (MQTT_PLATES=true keeps them)
+    - pattern: traffic/<site-id>/heartbeat
+      payload: contract 0.1 heartbeat JSON
+  influxdb:
+    bucket: raw_telemetry
+    measurement: sensor_data
+    tags: [device, sensor]
+    # sensor_data holds the device's heartbeat numbers; also alpr_read
+    # (counts per site, camera, direction, vehicle type; no plates) and alpr_node
+  archive:
+    - path: iot/data/ingest/ingest.db
+      format: sqlite
+
+smoke_test: tests/smoke.sh

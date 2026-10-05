@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "project": "mqtt-influx-grafana-ollama-go2rtc",
+  "layers": [
+    "iot",
+    "ai",
+    "edge"
+  ],
+  "template": {
+    "name": "mqtt-influx-grafana-ollama-go2rtc",
+    "version": "0.3.0"
+  },
+  "dashboard": {
+    "grafana_path": "/d/p4n4-traffic/traffic",
+    "tabs": [
+      "services",
+      "edge",
+      "agent",
+      "grafana",
+      "video"
+    ],
+    "theme": "theme",
+    "cameras": [
+      {
+        "id": "road",
+        "name": "Road",
+        "port": 1984,
+        "path": "/api/stream.mjpeg?src=road"
+      },
+      {
+        "id": "plates",
+        "name": "Road (plates)",
+        "port": 1984,
+        "path": "/api/stream.mjpeg?src=plates"
+      }
+    ]
+  }
+}

@@ -1,0 +1,89 @@
+services:
+
+  # ====================================================================================
+  # mqtt-influx-grafana-ollama-go2rtc: ai layer (joins p4n4-net, which ../iot creates)
+  #   p4n4-dashboard Agent tab ──► agent :11434 ──┬──► ollama (OLLAMA_MODEL, default gemma4:e2b)
+  #                                               ├──► ingest agent API (traffic numbers, plates; read only)
+  #                                               └──► influxdb (the edge device's health, read only)
+  # ====================================================================================
+
+  # ------------------------------------------------------------------------------------
+  # Traffic agent: the Ollama API, plus the traffic and InfluxDB tools on /api/chat
+  # ------------------------------------------------------------------------------------
+  agent:
+    image: python:3.13-slim
+    # Ollama's name and port, so p4n4-api (P4N4_API_OLLAMA_URL), and through it
+    # p4n4-dashboard's Assistant tab, gets the tools with no configuration
+    container_name: p4n4-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    command: ["python", "-u", "/p4n4/agent.py"]
+    user: "65534:65534"
+    read_only: true
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+      # The ingest service's agent API, for local_tools.py
+      INGEST_URL: http://ingest:8080
+      INGEST_READ_TOKEN: ${INGEST_READ_TOKEN:-}
+      # "-", not ":-": AGENT_THINK= (empty) means the model's default
+      AGENT_THINK: ${AGENT_THINK-false}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      # agent.py (the template's, unchanged), plus this project's local_tools.py
+      - ./agent:/p4n4:ro
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:11434/api/version', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Local LLM (Ollama). Reached through the agent; no host port of its own
+  # ------------------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:0.35.1
+    container_name: p4n4-ollama-server
+    restart: unless-stopped
+    # entrypoint.sh pulls OLLAMA_MODEL on first start, then runs the server
+    entrypoint: ["/bin/sh", "/p4n4/entrypoint.sh"]
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+      # "-", not ":-": OLLAMA_MODEL= (empty) means pull nothing
+      OLLAMA_MODEL: ${OLLAMA_MODEL-gemma4:e2b}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+    volumes:
+      - ./config/ollama/entrypoint.sh:/p4n4/entrypoint.sh:ro
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - p4n4-net
+
+# ====================================================================================
+# NETWORKS
+# ====================================================================================
+networks:
+  p4n4-net:
+    external: true
+    name: p4n4-net
+
+# ====================================================================================
+# VOLUMES
+# ====================================================================================
+volumes:
+  ollama-data:

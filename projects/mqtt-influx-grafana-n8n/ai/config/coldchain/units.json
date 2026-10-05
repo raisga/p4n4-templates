@@ -1,0 +1,5 @@
+[
+  { "id": "fridge-01", "name": "Vaccine fridge", "location": "Pharmacy", "min": 2, "max": 8 },
+  { "id": "fridge-02", "name": "Dairy walk-in", "location": "Kitchen", "min": 0, "max": 5 },
+  { "id": "freezer-01", "name": "Freezer", "location": "Kitchen", "min": -25, "max": -15 }
+]

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "project": "mqtt-influx-grafana-ollama",
+  "layers": [
+    "iot",
+    "ai"
+  ],
+  "template": {
+    "name": "mqtt-influx-grafana-ollama",
+    "version": "0.2.0"
+  },
+  "dashboard": {
+    "grafana_path": "/d/p4n4-telemetry/telemetry",
+    "tabs": [
+      "services",
+      "edge",
+      "agent",
+      "grafana"
+    ],
+    "theme": "theme"
+  }
+}

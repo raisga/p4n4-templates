@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - name: Run smoke test
-        working-directory: ${{ matrix.template }}
+        working-directory: projects/${{ matrix.template }}
         run: |
           test=$(uv run --with pyyaml python -c "import yaml; print(yaml.safe_load(open('template.yaml')).get('smoke_test') or '')")
           if [ -z "$test" ]; then echo "no smoke_test declared"; exit 0; fi

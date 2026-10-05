@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "project": "mqtt-influx-grafana-n8n",
+  "layers": [
+    "iot",
+    "ai"
+  ],
+  "template": {
+    "name": "mqtt-influx-grafana-n8n",
+    "version": "0.1.0"
+  },
+  "dashboard": {
+    "grafana_path": "/d/p4n4-coldchain/cold-chain",
+    "tabs": [
+      "services",
+      "edge",
+      "grafana"
+    ],
+    "theme": "theme"
+  }
+}

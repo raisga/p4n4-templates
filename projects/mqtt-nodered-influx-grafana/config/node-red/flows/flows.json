@@ -1,0 +1,358 @@
+[
+    {
+        "id": "tab-greenhouse",
+        "type": "tab",
+        "label": "Greenhouse control",
+        "disabled": false,
+        "info": "Greenhouse climate control: closes the loop from readings to actuators.\n\n- sensors/<zone>/temperature   → fan rule   (on at TEMP_HIGH, off TEMP_HYSTERESIS below)\n- sensors/<zone>/soil_moisture → valve rule (open at SOIL_LOW, close at SOIL_HIGH)\n- actuators/<zone>/<actuator>/mode (auto | on | off, retained) → manual override\n- every 5 s → valve watchdog (STALE_AFTER, VALVE_MAX_RUN, VALVE_LOCKOUT)\n\nCommands go to actuators/<zone>/<actuator>/set, retained, as\n{\"state\": \"on\", \"mode\": \"auto\", \"reason\": \"...\", \"at\": \"<ISO time>\"}.\nThresholds come from .env (docker compose up -d node-red after a change).\nTelegraf stores the readings and the commands in InfluxDB; this flow only decides."
+    },
+    {
+        "id": "broker-mosquitto",
+        "type": "mqtt-broker",
+        "name": "Mosquitto",
+        "broker": "mqtt",
+        "port": "1883",
+        "clientid": "p4n4-node-red",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "closeTopic": "",
+        "willTopic": "",
+        "birthQos": "0",
+        "closeQos": "0",
+        "willQos": "0",
+        "birthPayload": "",
+        "closePayload": "",
+        "willPayload": "",
+        "birthRetain": "false",
+        "closeRetain": "false",
+        "willRetain": "false",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "c-rules",
+        "type": "comment",
+        "z": "tab-greenhouse",
+        "name": "Rules: readings → desired state",
+        "info": "Greenhouse climate control: closes the loop from readings to actuators.\n\n- sensors/<zone>/temperature   → fan rule   (on at TEMP_HIGH, off TEMP_HYSTERESIS below)\n- sensors/<zone>/soil_moisture → valve rule (open at SOIL_LOW, close at SOIL_HIGH)\n- actuators/<zone>/<actuator>/mode (auto | on | off, retained) → manual override\n- every 5 s → valve watchdog (STALE_AFTER, VALVE_MAX_RUN, VALVE_LOCKOUT)\n\nCommands go to actuators/<zone>/<actuator>/set, retained, as\n{\"state\": \"on\", \"mode\": \"auto\", \"reason\": \"...\", \"at\": \"<ISO time>\"}.\nThresholds come from .env (docker compose up -d node-red after a change).\nTelegraf stores the readings and the commands in InfluxDB; this flow only decides.",
+        "x": 170,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "in-sensors",
+        "type": "mqtt in",
+        "z": "tab-greenhouse",
+        "name": "sensors/+/+",
+        "topic": "sensors/+/+",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "broker-mosquitto",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 120,
+        "y": 100,
+        "wires": [
+            [
+                "fn-normalize"
+            ]
+        ]
+    },
+    {
+        "id": "fn-normalize",
+        "type": "function",
+        "z": "tab-greenhouse",
+        "name": "Normalize reading",
+        "func": "// sensors/<zone>/<measurement> → msg.zone, msg.measurement and a numeric\n// msg.payload. Accepts {\"value\": 23.4, ...} or a bare number, like Telegraf.\nconst parts = msg.topic.split(\"/\");\nif (parts.length !== 3 || !parts[1] || !parts[2]) {\n    return null;\n}\nlet value = msg.payload;\nif (value !== null && typeof value === \"object\") {\n    value = value.value;\n}\nif (typeof value === \"string\") {\n    value = value.trim() === \"\" ? NaN : Number(value);\n}\nif (typeof value !== \"number\" || !Number.isFinite(value)) {\n    return null;\n}\nmsg.zone = parts[1];\nmsg.measurement = parts[2];\nmsg.payload = value;\n\n// When each zone last reported each measurement, for the valve watchdog\nconst seen = flow.get(\"seen\") || {};\nseen[msg.zone] = Object.assign(seen[msg.zone] || {}, { [msg.measurement]: Date.now() });\nflow.set(\"seen\", seen);\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 320,
+        "y": 100,
+        "wires": [
+            [
+                "sw-measurement"
+            ]
+        ]
+    },
+    {
+        "id": "sw-measurement",
+        "type": "switch",
+        "z": "tab-greenhouse",
+        "name": "By measurement",
+        "property": "measurement",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "temperature",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "soil_moisture",
+                "vt": "str"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 510,
+        "y": 100,
+        "wires": [
+            [
+                "fn-fan"
+            ],
+            [
+                "fn-valve"
+            ]
+        ]
+    },
+    {
+        "id": "fn-fan",
+        "type": "function",
+        "z": "tab-greenhouse",
+        "name": "Fan rule (hysteresis)",
+        "func": "// Number from the container environment (.env), or the fallback\nfunction num(name, fallback) {\n    const value = Number(env.get(name));\n    return Number.isFinite(value) ? value : fallback;\n}\n\n// Hysteresis: on at TEMP_HIGH, off once the temperature has fallen\n// TEMP_HYSTERESIS below it. In between the fan keeps its state, so it doesn't\n// switch on and off with every reading near the threshold.\nconst high = num(\"TEMP_HIGH\", 28);\nconst low = high - num(\"TEMP_HYSTERESIS\", 2);\nconst t = msg.payload;\n\nlet auto = null;\nif (t >= high) {\n    auto = { state: \"on\", reason: `temperature ${t} °C ≥ ${high} °C` };\n} else if (t <= low) {\n    auto = { state: \"off\", reason: `temperature ${t} °C ≤ ${low} °C` };\n}\nif (!auto) {\n    return null;\n}\nreturn { zone: msg.zone, actuator: \"fan\", auto };\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 720,
+        "y": 80,
+        "wires": [
+            [
+                "fn-decide"
+            ]
+        ]
+    },
+    {
+        "id": "fn-valve",
+        "type": "function",
+        "z": "tab-greenhouse",
+        "name": "Valve rule (hysteresis)",
+        "func": "// Number from the container environment (.env), or the fallback\nfunction num(name, fallback) {\n    const value = Number(env.get(name));\n    return Number.isFinite(value) ? value : fallback;\n}\n\n// Hysteresis: open at SOIL_LOW, close at SOIL_HIGH. After a max-run cutoff\n// (see the watchdog) the valve stays closed until its lockout ends.\nconst low = num(\"SOIL_LOW\", 30);\nconst high = num(\"SOIL_HIGH\", 45);\nconst m = msg.payload;\nconst key = `${msg.zone}/valve`;\n\nlet auto = null;\nif (m <= low) {\n    const until = (flow.get(\"lockout\") || {})[key] || 0;\n    if (Date.now() < until) {\n        node.status({ fill: \"yellow\", shape: \"ring\", text: `${key} locked out` });\n        return null;\n    }\n    auto = { state: \"on\", reason: `soil moisture ${m} % ≤ ${low} %` };\n} else if (m >= high) {\n    auto = { state: \"off\", reason: `soil moisture ${m} % ≥ ${high} %` };\n}\nif (!auto) {\n    return null;\n}\nreturn { zone: msg.zone, actuator: \"valve\", auto };\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 720,
+        "y": 120,
+        "wires": [
+            [
+                "fn-decide"
+            ]
+        ]
+    },
+    {
+        "id": "c-override",
+        "type": "comment",
+        "z": "tab-greenhouse",
+        "name": "Manual override and safety",
+        "info": "",
+        "x": 160,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "in-mode",
+        "type": "mqtt in",
+        "z": "tab-greenhouse",
+        "name": "actuators/+/+/mode",
+        "topic": "actuators/+/+/mode",
+        "qos": "1",
+        "datatype": "utf8",
+        "broker": "broker-mosquitto",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 260,
+        "wires": [
+            [
+                "fn-mode"
+            ]
+        ]
+    },
+    {
+        "id": "fn-mode",
+        "type": "function",
+        "z": "tab-greenhouse",
+        "name": "Store mode",
+        "func": "// actuators/<zone>/<actuator>/mode, retained, set by an operator:\n//   auto  the rules decide (default; an empty payload clears the override)\n//   on    forced on\n//   off   forced off\nconst ACTUATORS = [\"fan\", \"valve\"];\nconst parts = msg.topic.split(\"/\");\nconst zone = parts[1];\nconst actuator = parts[2];\nconst mode = String(msg.payload).trim().toLowerCase() || \"auto\";\nif (!zone || !ACTUATORS.includes(actuator) || ![\"auto\", \"on\", \"off\"].includes(mode)) {\n    node.warn(`ignored ${msg.topic}: expected actuators/<zone>/fan|valve/mode with auto, on or off`);\n    return null;\n}\nconst modes = flow.get(\"mode\") || {};\nmodes[`${zone}/${actuator}`] = mode;\nflow.set(\"mode\", modes);\n// Re-evaluate now rather than at the next reading\nreturn { zone, actuator };\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 370,
+        "y": 260,
+        "wires": [
+            [
+                "fn-decide"
+            ]
+        ]
+    },
+    {
+        "id": "inject-watchdog",
+        "type": "inject",
+        "z": "tab-greenhouse",
+        "name": "every 5 s",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "5",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "5",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 320,
+        "wires": [
+            [
+                "fn-watchdog"
+            ]
+        ]
+    },
+    {
+        "id": "fn-watchdog",
+        "type": "function",
+        "z": "tab-greenhouse",
+        "name": "Valve watchdog",
+        "func": "// Number from the container environment (.env), or the fallback\nfunction num(name, fallback) {\n    const value = Number(env.get(name));\n    return Number.isFinite(value) ? value : fallback;\n}\n\n// Runs every 5 s. Closes a valve the rules opened when:\n//   - its zone sent no soil_moisture reading for STALE_AFTER s (dead sensor or\n//     device: don't water blind), or\n//   - it has been open for VALVE_MAX_RUN s (stuck sensor, burst pipe). It then\n//     stays closed for VALVE_LOCKOUT s, whatever the readings say.\n// A valve an operator forced on (mode \"on\") is left alone.\nconst staleAfter = num(\"STALE_AFTER\", 120) * 1000;\nconst maxRun = num(\"VALVE_MAX_RUN\", 900) * 1000;\nconst lockoutFor = num(\"VALVE_LOCKOUT\", 1800) * 1000;\nconst now = Date.now();\nconst last = flow.get(\"last\") || {};\nconst seen = flow.get(\"seen\") || {};\nconst lockout = flow.get(\"lockout\") || {};\n\nconst out = [];\nfor (const [key, cmd] of Object.entries(last)) {\n    const [zone, actuator] = key.split(\"/\");\n    if (actuator !== \"valve\" || cmd.state !== \"on\" || cmd.mode !== \"auto\") {\n        continue;\n    }\n    const lastReading = (seen[zone] || {}).soil_moisture;\n    let reason = null;\n    if (!lastReading) {\n        reason = \"no soil_moisture reading since Node-RED started\";\n    } else if (now - lastReading > staleAfter) {\n        reason = `no soil_moisture reading for ${Math.round((now - lastReading) / 1000)} s`;\n    } else if (now - Date.parse(cmd.at) > maxRun) {\n        reason = `open for over ${maxRun / 1000} s; locked out for ${lockoutFor / 1000} s`;\n        lockout[key] = now + lockoutFor;\n    }\n    if (reason) {\n        out.push({ zone, actuator, auto: { state: \"off\", reason } });\n    }\n}\nflow.set(\"lockout\", lockout);\nreturn [out];\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 370,
+        "y": 320,
+        "wires": [
+            [
+                "fn-decide"
+            ]
+        ]
+    },
+    {
+        "id": "fn-decide",
+        "type": "function",
+        "z": "tab-greenhouse",
+        "name": "Decide and publish on change",
+        "func": "// Combines the rule's state with the operator's mode, and publishes a command\n// on actuators/<zone>/<actuator>/set when the state or mode changes. Commands\n// are retained, so a device that (re)connects gets its state straight away.\nconst key = `${msg.zone}/${msg.actuator}`;\nconst autos = flow.get(\"auto\") || {};\nif (msg.auto) {\n    autos[key] = msg.auto;\n    flow.set(\"auto\", autos);\n}\n\nconst mode = (flow.get(\"mode\") || {})[key] || \"auto\";\nlet state;\nlet reason;\nif (mode === \"auto\") {\n    if (!autos[key]) {\n        return null;  // no reading has decided yet\n    }\n    state = autos[key].state;\n    reason = autos[key].reason;\n} else {\n    state = mode;\n    reason = `manual override (mode ${mode})`;\n}\n\nconst last = flow.get(\"last\") || {};\nif (last[key] && last[key].state === state && last[key].mode === mode) {\n    return null;\n}\nconst at = new Date().toISOString();\nlast[key] = { state, mode, at };\nflow.set(\"last\", last);\n\nnode.status({ fill: state === \"on\" ? \"green\" : \"grey\", shape: \"dot\", text: `${key} ${state} (${mode})` });\nreturn {\n    topic: `actuators/${key}/set`,\n    payload: { state, mode, reason, at },\n    retain: true,\n    qos: 1,\n};\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1000,
+        "y": 200,
+        "wires": [
+            [
+                "out-commands",
+                "debug-commands"
+            ]
+        ]
+    },
+    {
+        "id": "out-commands",
+        "type": "mqtt out",
+        "z": "tab-greenhouse",
+        "name": "actuators/<zone>/<actuator>/set",
+        "topic": "",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "broker-mosquitto",
+        "x": 1250,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "debug-commands",
+        "type": "debug",
+        "z": "tab-greenhouse",
+        "name": "Commands",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1230,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "c-restart",
+        "type": "comment",
+        "z": "tab-greenhouse",
+        "name": "Restart: recover the last commands",
+        "info": "",
+        "x": 190,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "in-commands",
+        "type": "mqtt in",
+        "z": "tab-greenhouse",
+        "name": "actuators/+/+/set",
+        "topic": "actuators/+/+/set",
+        "qos": "1",
+        "datatype": "json",
+        "broker": "broker-mosquitto",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 460,
+        "wires": [
+            [
+                "fn-remember"
+            ]
+        ]
+    },
+    {
+        "id": "fn-remember",
+        "type": "function",
+        "z": "tab-greenhouse",
+        "name": "Remember last command",
+        "func": "// After a restart, picks up the last command for each actuator from its\n// retained set topic, so Node-RED doesn't repeat it and the watchdog knows\n// since when a valve has been open.\nconst parts = msg.topic.split(\"/\");\nconst p = msg.payload;\nif (!p || typeof p !== \"object\" || ![\"on\", \"off\"].includes(p.state)) {\n    return null;\n}\nconst key = `${parts[1]}/${parts[2]}`;\nconst last = flow.get(\"last\") || {};\nif (!last[key]) {\n    last[key] = { state: p.state, mode: p.mode || \"auto\", at: p.at || new Date().toISOString() };\n    flow.set(\"last\", last);\n}\nreturn null;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 370,
+        "y": 460,
+        "wires": []
+    }
+]

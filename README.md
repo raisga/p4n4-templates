@@ -12,6 +12,7 @@ Part of the [p4n4](https://github.com/raisga/p4n4) platform — an EdgeAI + GenA
 
 - [Overview](#overview)
 - [Available Templates](#available-templates)
+- [Use Cases](#use-cases)
 - [Using Templates](#using-templates)
 - [Template Structure](#template-structure)
 - [Contributing](#contributing)
@@ -42,16 +43,33 @@ Every template is **self-contained**: the directory is a runnable project on its
 
 | Template | Layers | Description |
 |----------|--------|-------------|
-| [`mqtt-influx-grafana`](mqtt-influx-grafana) | iot | MQTT → Telegraf → InfluxDB + file-system archive → Grafana dashboard. The starting point for sensor telemetry |
-| [`mqtt-influx-grafana-ollama`](mqtt-influx-grafana-ollama) | iot + ai | The same pipeline as an iot layer, plus an ai layer: a local LLM (Gemma 4 E2B on Ollama) for p4n4-dashboard's Agent tab that queries InfluxDB through tool calls |
-| [`retail-vision`](retail-vision) | iot + ai + edge | Camera analytics for a clothing store: an ingest service for the AIOROS Alpha Boutique device ↔ web contract (SQLite + InfluxDB + MQTT), a Grafana store dashboard, an agent that answers with deterministic numbers, and go2rtc streams for p4n4-dashboard's Video tab. Demo store and synthetic video included |
+| [`mqtt-influx-grafana`](projects/mqtt-influx-grafana) | iot | MQTT → Telegraf → InfluxDB + file-system archive → Grafana dashboard. The starting point for sensor telemetry |
+| [`mqtt-nodered-influx-grafana`](projects/mqtt-nodered-influx-grafana) | iot | Closed-loop control: the same pipeline plus Node-RED rules that switch a fan and an irrigation valve over MQTT (hysteresis, manual override per actuator, valve watchdog). Grafana shows the readings, the actuators and the reason behind every command. A simulated greenhouse obeys the commands |
+| [`mqtt-influx-grafana-ollama`](projects/mqtt-influx-grafana-ollama) | iot + ai | The same pipeline as an iot layer, plus an ai layer: a local LLM (Gemma 4 E2B on Ollama) for p4n4-dashboard's Agent tab that queries InfluxDB through tool calls |
+| [`mqtt-influx-grafana-n8n`](projects/mqtt-influx-grafana-n8n) | iot + ai | Cold-chain compliance: the pipeline as an iot layer, plus n8n workflows in an ai layer that alert on excursions against each unit's limits, escalate when nobody acknowledges, take the corrective action through a signed link, and email and save a daily record (CSV + HTML). A local Mailpit inbox catches the emails; Slack and Telegram are optional |
+| [`mqtt-influx-grafana-ollama-letta`](projects/mqtt-influx-grafana-ollama-letta) | iot + ai | Maintenance assistant with memory: vibration, bearing temperature and current from pumps and fans, plus a Letta agent on a local Ollama model for p4n4-dashboard's Agent tab. It keeps an equipment register and past incidents in its memory, reads trends through InfluxDB tools, and logs reported maintenance to its memory and to Grafana. Two weeks of demo history, with pump-2 repeating the pattern before its last failure |
+| [`mqtt-influx-grafana-ollama-go2rtc`](projects/mqtt-influx-grafana-ollama-go2rtc) | iot + ai + edge | Road traffic counting with ALPR: an ingest service for the ALPR device ↔ web contract (plates in SQLite for a retention period; counts without plates in InfluxDB + MQTT), a Grafana traffic dashboard, an agent that answers with deterministic numbers and looks plates up, and go2rtc streams for p4n4-dashboard's Video tab. Demo road and synthetic video included |
 
 ### Planned
+
+The demo template series (status of the scaffolded templates and the ideas still pending) is tracked in [docs/roadmap.md](docs/roadmap.md).
 
 | Template | Layers | Description |
 |----------|--------|-------------|
 | `factory-baseline` | iot + ai + edge | Full stack for discrete manufacturing — vibration anomaly detection, alert enrichment, incident escalation |
 | `iot-minimal` | iot | Minimal MING stack for sensor monitoring with no AI layer |
+
+---
+
+## Use Cases
+
+End-to-end guides that take a template to a client deployment: the project, p4n4-api, and a white-label p4n4-dashboard build.
+
+| Use case | Template | What it builds |
+|----------|----------|----------------|
+| [Greenhouse telemetry](docs/use-cases/greenhouse-telemetry.md) | `mqtt-influx-grafana` | Sensors to a Grafana dashboard that staff watch in a branded app (`verdant`) |
+| [Greenhouse assistant](docs/use-cases/greenhouse-assistant.md) | `mqtt-influx-grafana-ollama` | The same greenhouse plus a local LLM that answers from the readings, with a project tool for target ranges; moves an existing project over with its data |
+| [Road traffic](docs/use-cases/road-traffic.md) | `mqtt-influx-grafana-ollama-go2rtc` | A business park's access road counted with ALPR: live video, a traffic dashboard without plates, an assistant that quotes fixed numbers and looks plates up, and a 30-day retention (`roadwatch`) |
 
 ---
 
@@ -74,7 +92,7 @@ p4n4 template install mqtt-influx-grafana
 git clone https://github.com/raisga/p4n4-templates.git
 
 # Copy the template as your project directory
-cp -r p4n4-templates/mqtt-influx-grafana my-project
+cp -r p4n4-templates/projects/mqtt-influx-grafana my-project
 cd my-project
 
 # Generate secrets
@@ -89,10 +107,10 @@ docker compose up -d
 
 ## Template Structure
 
-Each template is a directory at the root of this repository:
+Each template is a directory under `projects/`, named after the template:
 
 ```
-<template-name>/
+projects/<template-name>/
 ├── template.yaml        # Registry metadata, validated against schema/template.schema.json
 ├── .p4n4.json           # Manifest: schema_version 1, project, layers, template {name, version}, dashboard {…}
 ├── .env.example         # Environment variable template (no real secrets)
@@ -113,6 +131,7 @@ schema/template.schema.json   # template.yaml schema
 schema/theme.schema.json      # theme/brand.json schema (p4n4-dashboard's brand format)
 scripts/validate.py           # static checks for every template
 docs/authoring.md             # conventions for writing a template
+docs/use-cases/               # end-to-end guides, one per use case
 ```
 
 ### Themes
@@ -141,13 +160,13 @@ dart run tool/brand.dart install ~/projects/greenhouse --apply
 ## Contributing
 
 1. Fork this repository
-2. Read [docs/authoring.md](docs/authoring.md) and copy [`mqtt-influx-grafana`](mqtt-influx-grafana) as a starting point
+2. Read [docs/authoring.md](docs/authoring.md) and copy [`mqtt-influx-grafana`](projects/mqtt-influx-grafana) as a starting point
 3. Add a `README.md` describing the use case, required hardware, and data format
 4. Run the checks, then open a pull request:
 
 ```bash
 uv run scripts/validate.py <template-name>   # static checks
-<template-name>/tests/smoke.sh               # end-to-end (needs Docker)
+projects/<template-name>/tests/smoke.sh      # end-to-end (needs Docker)
 ```
 
 Template guidelines:

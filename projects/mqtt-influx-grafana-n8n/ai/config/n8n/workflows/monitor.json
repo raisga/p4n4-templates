@@ -1,0 +1,567 @@
+{
+  "id": "coldChainMonitor",
+  "name": "Cold chain · monitor",
+  "active": false,
+  "isArchived": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "tags": [],
+  "description": "Detects temperature excursions, alerts, escalates and resolves them.",
+  "nodes": [
+    {
+      "id": "m-schedule",
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "m-check",
+      "name": "Check now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "path": "coldchain/check",
+        "httpMethod": "POST",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "6f0c1d1e-3b8a-4c55-9a51-0c6a1f6e7b01"
+    },
+    {
+      "id": "m-read",
+      "name": "Read units",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        240,
+        100
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/coldchain/config/units.json",
+        "options": {}
+      }
+    },
+    {
+      "id": "m-parse",
+      "name": "Parse units",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        460,
+        100
+      ],
+      "parameters": {
+        "operation": "fromJson",
+        "destinationKey": "units",
+        "options": {}
+      }
+    },
+    {
+      "id": "m-readings",
+      "name": "Query readings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.INFLUXDB_URL }}/api/v2/query?org={{ encodeURIComponent($env.INFLUXDB_ORG) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Token {{ $env.INFLUXDB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/csv"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'flux', dialect: { header: true, annotations: [] }, query: 'from(bucket: ' + JSON.stringify($env.INFLUXDB_BUCKET) + ')\\n  |> range(start: -24h)\\n  |> filter(fn: (r) => r._measurement == \"sensor_data\" and r._field == \"value\" and (r.sensor == \"temperature\" or r.sensor == \"door\"))\\n  |> group(columns: [\"device\", \"sensor\"])\\n  |> last()\\n  |> group()\\n  |> keep(columns: [\"_time\", \"_value\", \"device\", \"sensor\"])' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "m-excursions",
+      "name": "Query excursions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.INFLUXDB_URL }}/api/v2/query?org={{ encodeURIComponent($env.INFLUXDB_ORG) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Token {{ $env.INFLUXDB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/csv"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'flux', dialect: { header: true, annotations: [] }, query: 'from(bucket: ' + JSON.stringify($env.INFLUXDB_BUCKET) + ')\\n  |> range(start: -30d)\\n  |> filter(fn: (r) => r._measurement == \"coldchain_event\" and r._field == \"message\")\\n  |> group()\\n  |> keep(columns: [\"_time\", \"device\", \"excursion\", \"type\"])' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "m-evaluate",
+      "name": "Evaluate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// ---- helpers ---------------------------------------------------------------\n// Settings come from the container environment (ai/.env)\nconst setting = (name, fallback) => {\n    const value = $env[name];\n    return value === undefined || value === '' ? fallback : String(value);\n};\nconst seconds = (name, fallback) => {\n    const value = Number(setting(name, fallback));\n    return (Number.isFinite(value) && value >= 0 ? value : fallback) * 1000;\n};\n// InfluxDB CSV (header row, no annotations) → array of objects\nfunction parseCsv(text) {\n    const rows = [];\n    let row = [], field = '', quoted = false;\n    for (let i = 0; i < text.length; i++) {\n        const c = text[i];\n        if (quoted) {\n            if (c === '\"' && text[i + 1] === '\"') { field += '\"'; i++; }\n            else if (c === '\"') quoted = false;\n            else field += c;\n        } else if (c === '\"') quoted = true;\n        else if (c === ',') { row.push(field); field = ''; }\n        else if (c === '\\r' || c === '\\n') {\n            if (c === '\\r' && text[i + 1] === '\\n') i++;\n            row.push(field); field = '';\n            if (row.some((v) => v !== '')) rows.push(row);\n            row = [];\n        } else field += c;\n    }\n    if (field !== '' || row.length) { row.push(field); if (row.some((v) => v !== '')) rows.push(row); }\n    const out = [];\n    let header = null;\n    for (const r of rows) {\n        if (r[1] === 'result' && r[2] === 'table') { header = r; continue; }\n        if (header) out.push(Object.fromEntries(header.map((h, i) => [h, r[i]])));\n    }\n    return out;\n}\n// Line protocol escaping\nconst tag = (v) => String(v).replace(/[\\\\, =]/g, (c) => '\\\\' + c);\nconst str = (v) => '\"' + String(v).replace(/[\\\\\"]/g, (c) => '\\\\' + c) + '\"';\nconst esc = (v) => String(v).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst fmt = (t) => (t === null || t === undefined || Number.isNaN(t) ? '–' : (Math.round(t * 10) / 10).toFixed(1) + ' °C');\nconst minutes = (ms) => Math.max(0, Math.round(ms / 60000));\nconst label = (u) => (u.name || u.id) + (u.location ? ' (' + u.location + ')' : '');\n// A time as people read it, in the project's timezone (TZ)\nconst when = (t) => DateTime.fromMillis(typeof t === 'number' ? t : Date.parse(t), { zone: setting('GENERIC_TIMEZONE', 'UTC') })\n    .toFormat('yyyy-MM-dd HH:mm ZZZZ');\n// The ack link carries a signature, so only links from an alert work\nconst crypto = require('crypto');\nconst sign = (device, excursion) => crypto.createHmac('sha256', setting('ACK_SECRET', ''))\n    .update(device + '|' + excursion).digest('hex').slice(0, 32);\n\n// ---- evaluate ----------------------------------------------------------------\n// Runs every minute (and on POST /webhook/coldchain/check). Stateless: the\n// excursions so far are read back from InfluxDB (coldchain_event), so a\n// restart or an acknowledgement arriving mid-run loses nothing.\n//\n// For each unit in units.json:\n//   problem    temperature outside [min, max], or no reading for OFFLINE_AFTER\n//   start      first run that sees a problem with no open excursion\n//   alert      problem has lasted ALERT_DELAY          → email ALERT_EMAIL_TO\n//   escalate   alerted, not acknowledged for ESCALATE_AFTER → ESCALATION_EMAIL_TO\n//   resolve    back in range                            → email whoever was told\nconst ALERT_DELAY = seconds('ALERT_DELAY', 900);\nconst ESCALATE_AFTER = seconds('ESCALATE_AFTER', 1800);\nconst OFFLINE_AFTER = seconds('OFFLINE_AFTER', 600);\nconst ALERT_TO = setting('ALERT_EMAIL_TO', '');\nconst ESCALATION_TO = setting('ESCALATION_EMAIL_TO', '');\nconst BASE_URL = setting('N8N_WEBHOOK_URL', 'http://localhost:5678/').replace(/\\/?$/, '/');\n\nconst units = $('Parse units').first().json.units;\nif (!Array.isArray(units)) throw new Error('units.json must be a JSON array of units');\n\nconst now = Date.now();\nconst latest = {};\nfor (const r of parseCsv($('Query readings').first().json.data || '')) {\n    latest[r.device] = latest[r.device] || {};\n    latest[r.device][r.sensor] = { time: Date.parse(r._time), value: Number(r._value) };\n}\n// Excursions per device: { id, start, types: {type: time} }\nconst excursions = {};\nfor (const r of parseCsv($('Query excursions').first().json.data || '')) {\n    const byId = (excursions[r.device] = excursions[r.device] || {});\n    const ex = (byId[r.excursion] = byId[r.excursion] || { id: r.excursion, start: Date.parse(r.excursion), types: {} });\n    ex.types[r.type] = Date.parse(r._time);\n}\n\nconst lines = [];\nconst notifications = [];\nconst summary = [];\n\nfor (const u of units) {\n    if (!u || !u.id || !Number.isFinite(u.min) || !Number.isFinite(u.max)) {\n        throw new Error('units.json: every unit needs an id and numeric min and max: ' + JSON.stringify(u));\n    }\n    const reading = (latest[u.id] || {}).temperature;\n    const door = (latest[u.id] || {}).door;\n    const temperature = reading ? reading.value : null;\n    const range = u.min + '–' + u.max + ' °C';\n\n    // What is wrong now, if anything\n    let problem = null;\n    if (!reading || now - reading.time > OFFLINE_AFTER) {\n        problem = { kind: 'offline', text: reading\n            ? 'no reading for ' + minutes(now - reading.time) + ' min (last ' + fmt(reading.value) + ')'\n            : 'no reading in the last 24 h' };\n    } else if (temperature > u.max) {\n        problem = { kind: 'high', text: fmt(temperature) + ', above ' + u.max + ' °C' };\n    } else if (temperature < u.min) {\n        problem = { kind: 'low', text: fmt(temperature) + ', below ' + u.min + ' °C' };\n    }\n    if (problem && door && door.value === 1) problem.text += '; door open';\n\n    const open = Object.values(excursions[u.id] || {})\n        .filter((e) => !('resolve' in e.types))\n        .sort((a, b) => b.start - a.start)[0];\n    const event = (ex, type, message, time = now, extra = '') => lines.push(\n        'coldchain_event,device=' + tag(u.id) + ',excursion=' + tag(ex.id) + ',type=' + type\n        + ' message=' + str(message) + (temperature !== null ? ',temperature=' + temperature : '') + extra + ' ' + time);\n    const ackUrl = (ex) => BASE_URL + 'webhook/coldchain/ack?device=' + encodeURIComponent(u.id)\n        + '&excursion=' + encodeURIComponent(ex.id) + '&token=' + sign(u.id, ex.id);\n    const notify = (level, to, subject, intro, ex, withAck) => {\n        if (!to) return;\n        const rows = [\n            ['Unit', label(u)], ['Now', problem ? problem.text : fmt(temperature)], ['Limits', range],\n            ['Since', when(ex.start)], ['Duration', minutes(now - ex.start) + ' min'],\n        ];\n        const ack = withAck ? ackUrl(ex) : null;\n        notifications.push({\n            level, to, subject,\n            text: intro + '\\n\\n' + rows.map(([k, v]) => k + ': ' + v).join('\\n')\n                + (ack ? '\\n\\nAcknowledge and record the corrective action:\\n' + ack : ''),\n            html: '<p>' + esc(intro) + '</p><table cellpadding=\"4\">'\n                + rows.map(([k, v]) => '<tr><td><b>' + esc(k) + '</b></td><td>' + esc(v) + '</td></tr>').join('')\n                + '</table>'\n                + (ack ? '<p><a href=\"' + esc(ack) + '\">Acknowledge and record the corrective action</a></p>' : ''),\n        });\n    };\n\n    let ex = open;\n    if (problem && !ex) {\n        // An excursion starts at its last good reading's successor: the reading\n        // that is out of range, or the last one seen before the unit went quiet\n        const start = reading ? Math.min(reading.time, now) : now;\n        ex = { id: new Date(start).toISOString(), start, types: {} };\n        event(ex, 'start', problem.text, start);\n        ex.types.start = start;\n    }\n    if (!problem && ex) {\n        const told = [];\n        if ('alert' in ex.types) told.push(ALERT_TO);\n        if ('escalate' in ex.types) told.push(ESCALATION_TO);\n        event(ex, 'resolve', 'back in range at ' + fmt(temperature) + ' after ' + minutes(now - ex.start) + ' min');\n        if (told.length) {\n            notify('resolved', told.filter(Boolean).join(','),\n                '[Cold chain] Resolved: ' + label(u) + ' back in range after ' + minutes(now - ex.start) + ' min',\n                label(u) + ' is back within ' + range + '.' + ('ack' in ex.types ? '' : ' Nobody has acknowledged it yet: record the corrective action.'),\n                ex, !('ack' in ex.types));\n        }\n        ex = null;\n    }\n    if (problem && ex) {\n        if (!('alert' in ex.types) && now - ex.start >= ALERT_DELAY) {\n            event(ex, 'alert', problem.text);\n            ex.types.alert = now;\n            notify('alert', ALERT_TO,\n                '[Cold chain] ALERT: ' + label(u) + ' ' + problem.text,\n                label(u) + ' has been out of range (' + range + ') for ' + minutes(now - ex.start) + ' min.', ex, true);\n        } else if ('alert' in ex.types && !('ack' in ex.types) && !('escalate' in ex.types)\n                   && now - ex.types.alert >= ESCALATE_AFTER) {\n            event(ex, 'escalate', problem.text);\n            ex.types.escalate = now;\n            notify('escalate', [ESCALATION_TO, ALERT_TO].filter(Boolean).join(','),\n                '[Cold chain] ESCALATION: ' + label(u) + ' out of range for ' + minutes(now - ex.start) + ' min, not acknowledged',\n                'Nobody has acknowledged this alert in ' + minutes(now - ex.types.alert) + ' min.', ex, true);\n        }\n    }\n\n    // Current state, and the unit's limits, for Grafana\n    let state = 'ok';\n    if (problem) {\n        state = 'ack' in ex.types ? 'acknowledged' : 'escalate' in ex.types ? 'escalated'\n            : 'alert' in ex.types ? 'alerted' : problem.kind === 'offline' ? 'offline' : 'excursion';\n    }\n    lines.push('coldchain_status,device=' + tag(u.id) + ' state=' + str(state)\n        + ',in_range=' + (problem ? 0 : 1) + (temperature !== null ? ',temperature=' + temperature : '') + ' ' + now);\n    lines.push('coldchain_limit,device=' + tag(u.id) + ' min=' + u.min + ',max=' + u.max + ' ' + now);\n    summary.push({ device: u.id, state, temperature, excursion: ex ? ex.id : null });\n}\n\nreturn [\n    ...notifications.map((n) => ({ json: { kind: 'notify', ...n } })),\n    { json: { kind: 'write', lines: lines.join('\\n'), summary: { checked_at: new Date(now).toISOString(), notifications: notifications.length, units: summary } } },\n];\n"
+      }
+    },
+    {
+      "id": "m-route",
+      "name": "Route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1340,
+        100
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "notify",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "notify"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "write",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "write"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "m-email",
+      "name": "Send email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1600,
+        -100
+      ],
+      "parameters": {
+        "fromEmail": "={{ $env.EMAIL_FROM }}",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "both",
+        "text": "={{ $json.text }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "coldchainSmtp",
+          "name": "Cold chain SMTP"
+        }
+      }
+    },
+    {
+      "id": "m-slack-if",
+      "name": "Slack set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        40
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "m-slack-if-c",
+              "leftValue": "={{ $env.SLACK_WEBHOOK_URL }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "m-slack",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: '*' + $json.subject + '*\\n' + $json.text }) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "m-telegram-if",
+      "name": "Telegram set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "m-telegram-if-c",
+              "leftValue": "={{ $env.TELEGRAM_BOT_TOKEN }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "m-telegram",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: $json.subject + '\\n\\n' + $json.text }) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "m-write",
+      "name": "Write to InfluxDB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        340
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.INFLUXDB_URL }}/api/v2/write?org={{ encodeURIComponent($env.INFLUXDB_ORG) }}&bucket={{ encodeURIComponent($env.INFLUXDB_BUCKET) }}&precision=ms",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Token {{ $env.INFLUXDB_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain; charset=utf-8",
+        "body": "={{ $json.lines }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "m-summary",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        340
+      ],
+      "parameters": {
+        "jsCode": "// The webhook's response: what this run saw\nreturn [{ json: $('Evaluate').last().json.summary }];"
+      }
+    },
+    {
+      "id": "m-note",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        -320
+      ],
+      "parameters": {
+        "width": 600,
+        "height": 260,
+        "content": "## Cold chain monitor\nEvery minute: reads the units' limits from `units.json`, the latest readings and the open excursions from InfluxDB, then decides.\n\n- out of range or silent → **start** an excursion\n- `ALERT_DELAY` later → **alert** `ALERT_EMAIL_TO`\n- not acknowledged `ESCALATE_AFTER` later → **escalate** to `ESCALATION_EMAIL_TO`\n- back in range → **resolve**, and tell whoever was alerted\n\nEvery decision is a `coldchain_event` point in InfluxDB: the audit trail, and this workflow's only state. Settings are in `ai/.env`."
+      }
+    }
+  ],
+  "connections": {
+    "Every minute": {
+      "main": [
+        [
+          {
+            "node": "Read units",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check now": {
+      "main": [
+        [
+          {
+            "node": "Read units",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read units": {
+      "main": [
+        [
+          {
+            "node": "Parse units",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse units": {
+      "main": [
+        [
+          {
+            "node": "Query readings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query readings": {
+      "main": [
+        [
+          {
+            "node": "Query excursions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query excursions": {
+      "main": [
+        [
+          {
+            "node": "Evaluate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack set?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write to InfluxDB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack set?": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram set?": {
+      "main": [
+        [
+          {
+            "node": "Send to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to InfluxDB": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "versionId": "fd5e6e1e-e6b6-586f-961a-377e7406e5dd"
+}

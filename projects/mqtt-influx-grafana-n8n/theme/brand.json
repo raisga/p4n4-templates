@@ -1,0 +1,25 @@
+{
+  "id": "polar",
+  "appName": "Polar Cold Chain",
+  "wordmark": { "text": "polar", "suffix": ".cold" },
+  "platform": "polar",
+  "tagline": "Example white-label brand for the cold-chain compliance template — replace or delete.",
+  "fonts": { "display": "Manrope", "mono": "DM Mono" },
+  "colors": {
+    "light": { "accent": "#0369A1", "accent2": "#075985", "onAccent": "#FFFFFF" },
+    "dark": { "accent": "#7DD3FC", "accent2": "#38BDF8", "onAccent": "#082F49", "bg": "#060C12", "bg2": "#0A141C", "bg3": "#0F1D28", "border": "#16293A", "border2": "#21384D", "err": "#F87171" }
+  },
+  "tabs": ["services", "edge", "grafana"],
+  "links": [
+    { "label": "Alerts inbox (demo)", "url": "http://localhost:8025" },
+    { "label": "Template README", "url": "https://github.com/raisga/p4n4-templates/tree/main/projects/mqtt-influx-grafana-n8n" }
+  ],
+  "defaults": { "host": "localhost", "themeMode": "light", "clientTabs": "grafana" },
+  "native": {
+    "displayName": "Polar Cold Chain",
+    "applicationId": "com.example.polar.coldchain",
+    "bundleId": "com.example.polar.coldchain",
+    "company": "Polar Foods (example)",
+    "localNetworkUsage": "Connects to your cold-room monitoring and dashboards on the local network."
+  }
+}

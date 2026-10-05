@@ -1,0 +1,357 @@
+{
+  "id": "coldChainAckForm",
+  "name": "Cold chain · acknowledge",
+  "active": false,
+  "isArchived": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "tags": [],
+  "description": "Records who acknowledged an excursion and the corrective action.",
+  "nodes": [
+    {
+      "id": "a-get",
+      "name": "Ack link",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "coldchain/ack",
+        "httpMethod": "GET",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "6f0c1d1e-3b8a-4c55-9a51-0c6a1f6e7b02"
+    },
+    {
+      "id": "a-read",
+      "name": "Read units",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/coldchain/config/units.json",
+        "options": {}
+      }
+    },
+    {
+      "id": "a-parse",
+      "name": "Parse units",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "fromJson",
+        "destinationKey": "units",
+        "options": {}
+      }
+    },
+    {
+      "id": "a-form",
+      "name": "Form",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ---- helpers ---------------------------------------------------------------\n// Settings come from the container environment (ai/.env)\nconst setting = (name, fallback) => {\n    const value = $env[name];\n    return value === undefined || value === '' ? fallback : String(value);\n};\nconst seconds = (name, fallback) => {\n    const value = Number(setting(name, fallback));\n    return (Number.isFinite(value) && value >= 0 ? value : fallback) * 1000;\n};\n// InfluxDB CSV (header row, no annotations) → array of objects\nfunction parseCsv(text) {\n    const rows = [];\n    let row = [], field = '', quoted = false;\n    for (let i = 0; i < text.length; i++) {\n        const c = text[i];\n        if (quoted) {\n            if (c === '\"' && text[i + 1] === '\"') { field += '\"'; i++; }\n            else if (c === '\"') quoted = false;\n            else field += c;\n        } else if (c === '\"') quoted = true;\n        else if (c === ',') { row.push(field); field = ''; }\n        else if (c === '\\r' || c === '\\n') {\n            if (c === '\\r' && text[i + 1] === '\\n') i++;\n            row.push(field); field = '';\n            if (row.some((v) => v !== '')) rows.push(row);\n            row = [];\n        } else field += c;\n    }\n    if (field !== '' || row.length) { row.push(field); if (row.some((v) => v !== '')) rows.push(row); }\n    const out = [];\n    let header = null;\n    for (const r of rows) {\n        if (r[1] === 'result' && r[2] === 'table') { header = r; continue; }\n        if (header) out.push(Object.fromEntries(header.map((h, i) => [h, r[i]])));\n    }\n    return out;\n}\n// Line protocol escaping\nconst tag = (v) => String(v).replace(/[\\\\, =]/g, (c) => '\\\\' + c);\nconst str = (v) => '\"' + String(v).replace(/[\\\\\"]/g, (c) => '\\\\' + c) + '\"';\nconst esc = (v) => String(v).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst fmt = (t) => (t === null || t === undefined || Number.isNaN(t) ? '–' : (Math.round(t * 10) / 10).toFixed(1) + ' °C');\nconst minutes = (ms) => Math.max(0, Math.round(ms / 60000));\nconst label = (u) => (u.name || u.id) + (u.location ? ' (' + u.location + ')' : '');\n// A time as people read it, in the project's timezone (TZ)\nconst when = (t) => DateTime.fromMillis(typeof t === 'number' ? t : Date.parse(t), { zone: setting('GENERIC_TIMEZONE', 'UTC') })\n    .toFormat('yyyy-MM-dd HH:mm ZZZZ');\n// The ack link carries a signature, so only links from an alert work\nconst crypto = require('crypto');\nconst sign = (device, excursion) => crypto.createHmac('sha256', setting('ACK_SECRET', ''))\n    .update(device + '|' + excursion).digest('hex').slice(0, 32);\n\n// GET /webhook/coldchain/ack?device=…&excursion=…&token=… (the link in an alert)\nconst q = $('Ack link').first().json.query || {};\nconst page = (title, body) => '<!doctype html><html><head><meta charset=\"utf-8\">'\n    + '<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>' + esc(title) + '</title>'\n    + '<style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 1rem;line-height:1.5}'\n    + 'label{display:block;margin-top:1rem;font-weight:600}input,textarea{width:100%;padding:.5rem;font:inherit;box-sizing:border-box}'\n    + 'button{margin-top:1rem;padding:.6rem 1.2rem;font:inherit}</style></head><body>' + body + '</body></html>';\nif (!q.device || !q.excursion || q.token !== sign(q.device, q.excursion)) {\n    return [{ json: { status: 400, html: page('Invalid link', '<h1>Invalid link</h1><p>Use the link in the alert email.</p>') } }];\n}\nconst units = $('Parse units').first().json.units || [];\nconst unit = units.find((u) => u.id === q.device) || { id: q.device };\nconst hidden = (name, value) => '<input type=\"hidden\" name=\"' + name + '\" value=\"' + esc(value) + '\">';\nreturn [{ json: { status: 200, html: page('Acknowledge excursion', '<h1>Acknowledge excursion</h1>'\n    + '<p><b>' + esc(label(unit)) + '</b>' + (unit.min !== undefined ? ', limits ' + unit.min + '–' + unit.max + ' °C' : '')\n    + '<br>Out of range since ' + esc(when(q.excursion)) + '</p>'\n    + '<form method=\"post\">' + hidden('device', q.device) + hidden('excursion', q.excursion) + hidden('token', q.token)\n    + '<label for=\"by\">Your name</label><input id=\"by\" name=\"by\" required maxlength=\"80\">'\n    + '<label for=\"action\">Corrective action taken</label>'\n    + '<textarea id=\"action\" name=\"action\" rows=\"4\" required maxlength=\"1000\" placeholder=\"e.g. Door closed, stock moved to fridge-01, product quarantined pending QA\"></textarea>'\n    + '<button type=\"submit\">Acknowledge</button></form>') } }];\n"
+      }
+    },
+    {
+      "id": "a-form-respond",
+      "name": "Show form",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseCode": "={{ $json.status }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "a-post",
+      "name": "Ack submitted",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        260
+      ],
+      "parameters": {
+        "path": "coldchain/ack",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "6f0c1d1e-3b8a-4c55-9a51-0c6a1f6e7b03"
+    },
+    {
+      "id": "a-validate",
+      "name": "Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        260
+      ],
+      "parameters": {
+        "jsCode": "// ---- helpers ---------------------------------------------------------------\n// Settings come from the container environment (ai/.env)\nconst setting = (name, fallback) => {\n    const value = $env[name];\n    return value === undefined || value === '' ? fallback : String(value);\n};\nconst seconds = (name, fallback) => {\n    const value = Number(setting(name, fallback));\n    return (Number.isFinite(value) && value >= 0 ? value : fallback) * 1000;\n};\n// InfluxDB CSV (header row, no annotations) → array of objects\nfunction parseCsv(text) {\n    const rows = [];\n    let row = [], field = '', quoted = false;\n    for (let i = 0; i < text.length; i++) {\n        const c = text[i];\n        if (quoted) {\n            if (c === '\"' && text[i + 1] === '\"') { field += '\"'; i++; }\n            else if (c === '\"') quoted = false;\n            else field += c;\n        } else if (c === '\"') quoted = true;\n        else if (c === ',') { row.push(field); field = ''; }\n        else if (c === '\\r' || c === '\\n') {\n            if (c === '\\r' && text[i + 1] === '\\n') i++;\n            row.push(field); field = '';\n            if (row.some((v) => v !== '')) rows.push(row);\n            row = [];\n        } else field += c;\n    }\n    if (field !== '' || row.length) { row.push(field); if (row.some((v) => v !== '')) rows.push(row); }\n    const out = [];\n    let header = null;\n    for (const r of rows) {\n        if (r[1] === 'result' && r[2] === 'table') { header = r; continue; }\n        if (header) out.push(Object.fromEntries(header.map((h, i) => [h, r[i]])));\n    }\n    return out;\n}\n// Line protocol escaping\nconst tag = (v) => String(v).replace(/[\\\\, =]/g, (c) => '\\\\' + c);\nconst str = (v) => '\"' + String(v).replace(/[\\\\\"]/g, (c) => '\\\\' + c) + '\"';\nconst esc = (v) => String(v).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst fmt = (t) => (t === null || t === undefined || Number.isNaN(t) ? '–' : (Math.round(t * 10) / 10).toFixed(1) + ' °C');\nconst minutes = (ms) => Math.max(0, Math.round(ms / 60000));\nconst label = (u) => (u.name || u.id) + (u.location ? ' (' + u.location + ')' : '');\n// A time as people read it, in the project's timezone (TZ)\nconst when = (t) => DateTime.fromMillis(typeof t === 'number' ? t : Date.parse(t), { zone: setting('GENERIC_TIMEZONE', 'UTC') })\n    .toFormat('yyyy-MM-dd HH:mm ZZZZ');\n// The ack link carries a signature, so only links from an alert work\nconst crypto = require('crypto');\nconst sign = (device, excursion) => crypto.createHmac('sha256', setting('ACK_SECRET', ''))\n    .update(device + '|' + excursion).digest('hex').slice(0, 32);\n\n// POST /webhook/coldchain/ack from the form: records who acknowledged the\n// excursion and the corrective action as a coldchain_event (type ack)\nconst b = $json.body || {};\nconst page = (title, body) => '<!doctype html><html><head><meta charset=\"utf-8\">'\n    + '<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>' + esc(title) + '</title>'\n    + '<style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 1rem;line-height:1.5}</style>'\n    + '</head><body>' + body + '</body></html>';\nconst by = String(b.by || '').trim().slice(0, 80);\nconst action = String(b.action || '').trim().slice(0, 1000);\nif (!b.device || !b.excursion || b.token !== sign(b.device, b.excursion)) {\n    return [{ json: { ok: false, status: 400, html: page('Invalid link', '<h1>Invalid link</h1><p>Use the link in the alert email.</p>') } }];\n}\nif (!by || !action) {\n    return [{ json: { ok: false, status: 400, html: page('Missing details', '<h1>Missing details</h1><p>Go back and fill in your name and the corrective action.</p>') } }];\n}\nconst now = Date.now();\nreturn [{ json: {\n    ok: true, status: 200,\n    line: 'coldchain_event,device=' + tag(b.device) + ',excursion=' + tag(b.excursion) + ',type=ack'\n        + ' message=' + str('acknowledged by ' + by) + ',by=' + str(by) + ',action=' + str(action) + ' ' + now,\n    html: page('Acknowledged', '<h1>Acknowledged</h1><p>Recorded at ' + esc(when(now))\n        + ' for ' + esc(b.device) + '. Escalation for this excursion has stopped.</p><p><b>Corrective action:</b> ' + esc(action) + '</p>'),\n} }];\n"
+      }
+    },
+    {
+      "id": "a-ok",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        440,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a-ok-c",
+              "leftValue": "={{ $json.line }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a-write",
+      "name": "Record acknowledgement",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.INFLUXDB_URL }}/api/v2/write?org={{ encodeURIComponent($env.INFLUXDB_ORG) }}&bucket={{ encodeURIComponent($env.INFLUXDB_BUCKET) }}&precision=ms",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Token {{ $env.INFLUXDB_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain; charset=utf-8",
+        "body": "={{ $json.line }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "a-done",
+      "name": "Confirm",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        220
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $('Validate').item.json.html }}",
+        "options": {
+          "responseCode": "={{ 200 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "a-error",
+      "name": "Reject",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        380
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseCode": "={{ $json.status }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "a-note",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        220,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 200,
+        "content": "## Acknowledge an excursion\nThe link in an alert opens a form (GET). Submitting it (POST) records who acknowledged the excursion and the corrective action as a `coldchain_event` of type `ack`, which stops escalation. Links are signed with `ACK_SECRET`."
+      }
+    }
+  ],
+  "connections": {
+    "Ack link": {
+      "main": [
+        [
+          {
+            "node": "Read units",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read units": {
+      "main": [
+        [
+          {
+            "node": "Parse units",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse units": {
+      "main": [
+        [
+          {
+            "node": "Form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form": {
+      "main": [
+        [
+          {
+            "node": "Show form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ack submitted": {
+      "main": [
+        [
+          {
+            "node": "Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Record acknowledgement",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record acknowledgement": {
+      "main": [
+        [
+          {
+            "node": "Confirm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "versionId": "b4774877-1fab-50b1-851a-5d69ad7932b7"
+}

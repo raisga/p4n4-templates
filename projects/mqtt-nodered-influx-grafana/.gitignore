@@ -1,0 +1,14 @@
+.env
+docker-compose.override.yml
+
+# File-system archive written by Telegraf (keep the directories)
+data/archive/**/*
+!data/archive/**/.gitkeep
+
+# Broker certificates (keep the directory: docker-compose.yml mounts it)
+config/mosquitto/certs/*
+!config/mosquitto/certs/.gitkeep
+
+# Written next to flows.json by Node-RED when you deploy from the editor
+config/node-red/flows/.flows*.backup
+config/node-red/flows/flows_cred.json

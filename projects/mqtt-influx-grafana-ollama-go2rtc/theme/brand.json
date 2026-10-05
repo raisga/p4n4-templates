@@ -1,0 +1,33 @@
+{
+  "id": "roadwatch",
+  "appName": "Roadwatch",
+  "wordmark": { "text": "road", "suffix": ".watch" },
+  "platform": "road",
+  "tagline": "Example white-label brand for the road traffic (ALPR) use case — replace or delete.",
+  "fonts": { "display": "Manrope", "mono": "DM Mono" },
+  "colors": {
+    "light": { "accent": "#B45309", "accent2": "#92400E", "onAccent": "#FFFFFF" },
+    "dark": {
+      "accent": "#FBBF24", "accent2": "#F59E0B", "onAccent": "#1C1203",
+      "bg": "#0B0D10", "bg2": "#12151A", "bg3": "#191D24",
+      "border": "#252A33", "border2": "#333A45", "err": "#F87171"
+    }
+  },
+  "tabs": ["services", "edge", "agent", "grafana", "video"],
+  "links": [{ "label": "Road traffic use case", "url": "https://github.com/raisga/p4n4-templates/blob/main/docs/use-cases/road-traffic.md" }],
+  "defaults": {
+    "host": "localhost",
+    "themeMode": "dark",
+    "powerTabs": "services,edge,agent,grafana,video",
+    "normieTabs": "video,agent,grafana",
+    "agentBackend": "ollama",
+    "ollamaModel": "gemma4:e2b"
+  },
+  "native": {
+    "displayName": "Roadwatch",
+    "applicationId": "com.example.roadwatch",
+    "bundleId": "com.example.roadwatch",
+    "company": "Roadwatch (example)",
+    "localNetworkUsage": "Connects to your road cameras and dashboards on the local network."
+  }
+}
