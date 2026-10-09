@@ -15,7 +15,7 @@ services:
     # Ollama's name and port, so p4n4-api (P4N4_API_OLLAMA_URL), and through it
     # p4n4-dashboard's Assistant tab, gets the tools with no configuration
     container_name: p4n4-ollama
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     ports:
       - "11434:11434"
     command: ["python", "-u", "/p4n4/agent.py"]
@@ -54,7 +54,7 @@ services:
   ollama:
     image: ollama/ollama:0.35.1
     container_name: p4n4-ollama-server
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     # entrypoint.sh pulls OLLAMA_MODEL on first start, then runs the server
     entrypoint: ["/bin/sh", "/p4n4/entrypoint.sh"]
     environment:

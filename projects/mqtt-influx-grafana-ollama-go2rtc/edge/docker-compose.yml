@@ -15,7 +15,7 @@ services:
   video:
     image: alexxit/go2rtc:1.9.14
     container_name: p4n4-video
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     ports:
       - "1984:1984"   # MJPEG streams, snapshots and go2rtc's web UI: site network only
     # video.sh writes go2rtc's config from CAMERA_URL / OVERLAY_URL, then runs it
@@ -46,7 +46,7 @@ services:
   uplink:
     image: python:3.13-slim
     container_name: p4n4-uplink
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     profiles: [device]
     command: ["python", "-u", "/p4n4/uplink.py"]
     read_only: true

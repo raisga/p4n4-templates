@@ -15,7 +15,7 @@ services:
     image: ollama/ollama:0.35.1
     # Ollama's usual name and port, so p4n4-api finds it with no configuration
     container_name: p4n4-ollama
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     ports:
       - "${OLLAMA_BIND:-127.0.0.1}:11434:11434"
     # entrypoint.sh pulls OLLAMA_MODEL and OLLAMA_EMBED_MODEL on first start
@@ -51,7 +51,7 @@ services:
   gateway:
     image: python:3.13-slim
     container_name: p4n4-ollama-gateway
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     command: ["python", "-u", "/p4n4/gateway.py"]
     user: "65534:65534"
     read_only: true
@@ -79,7 +79,7 @@ services:
     # product. 0.16 is the server p4n4-api's agent endpoints use (/v1/agents/).
     image: letta/letta:0.16.8
     container_name: p4n4-letta
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     ports:
       - "${LETTA_BIND:-127.0.0.1}:8283:8283"
     environment:

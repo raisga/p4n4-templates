@@ -13,7 +13,7 @@ services:
   ingest:
     image: python:3.13-slim
     container_name: p4n4-ingest
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     ports:
       - "8090:8080"   # contract API (remap in docker-compose.override.yml)
     command: ["python", "-u", "/p4n4/ingest.py"]
@@ -62,7 +62,7 @@ services:
   mqtt:
     image: eclipse-mosquitto:2.0.22
     container_name: p4n4-mqtt
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     ports:
       - "1883:1883"   # MQTT TCP
       - "9001:9001"   # MQTT WebSocket
@@ -85,7 +85,7 @@ services:
   influxdb:
     image: influxdb:2.9
     container_name: p4n4-influxdb
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     ports:
       - "8086:8086"
     environment:
@@ -114,7 +114,7 @@ services:
   grafana:
     image: grafana/grafana-oss:12.4.3
     container_name: p4n4-grafana
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     ports:
       - "3000:3000"
     environment:
@@ -164,7 +164,7 @@ services:
   simulator:
     image: python:3.13-slim
     container_name: p4n4-simulator
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
     profiles: [demo]
     command: ["python", "-u", "/scripts/simulate.py"]
     user: "65534:65534"
