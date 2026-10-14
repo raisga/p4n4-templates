@@ -46,7 +46,7 @@ MANIFEST_SCHEMA_VERSION = 1
 COMPOSE_ENV_KEYS = {"COMPOSE_PROFILES", "COMPOSE_PROJECT_NAME"}
 COMPOSE_VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)")
 # p4n4-dashboard tabs a manifest's "dashboard" block may list (p4n4_lib.manifest.DASHBOARD_TABS)
-DASHBOARD_TABS = {"services", "edge", "agent", "grafana", "video"}
+DASHBOARD_TABS = {"services", "edge", "agent", "grafana", "video", "feed"}
 GRAFANA_DASHBOARD_PATH = re.compile(r"^/d/([^/?#]+)")
 CAMERA_ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
@@ -125,7 +125,7 @@ def dashboard_errors(template: Path, block: object, dirs: list[Path]) -> list[st
         return [".p4n4.json: dashboard must be an object"]
     errors = [
         f".p4n4.json: dashboard.{key} is not a known setting"
-        for key in sorted(set(block) - {"grafana_path", "tabs", "theme", "cameras"})
+        for key in sorted(set(block) - {"grafana_path", "tabs", "theme", "home", "cameras", "feed"})
     ]
     if "theme" in block:
         errors.extend(theme_errors(template, block["theme"]))
