@@ -32,6 +32,8 @@ services:
       INGEST_READ_TOKEN: ${INGEST_READ_TOKEN:-}
       # "-", not ":-": AGENT_THINK= (empty) means the model's default
       AGENT_THINK: ${AGENT_THINK-false}
+      # Read the prompt and tools into this model at start (empty: don't)
+      AGENT_WARM_MODEL: ${OLLAMA_MODEL-gemma4:e2b}
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       # agent.py (the template's, unchanged), plus this project's local_tools.py

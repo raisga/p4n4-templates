@@ -121,6 +121,17 @@ NODES = definition(
 )
 
 
+# What the dashboard's chat shows while each tool runs ("Looking up …")
+LABELS = {
+    "get_traffic_summary": {"en": "the traffic summary", "es": "el resumen del tráfico"},
+    "get_traffic_by_hour": {"en": "traffic by hour", "es": "el tráfico por hora"},
+    "find_plate": {"en": "the plate", "es": "la matrícula"},
+    "get_frequent_plates": {"en": "the frequent plates", "es": "las matrículas frecuentes"},
+    "get_camera_checks": {"en": "the camera checks", "es": "las comprobaciones de cámara"},
+    "get_device_status": {"en": "the device status", "es": "el estado del equipo"},
+}
+
+
 def tools(agent):
     def get(path: str, params: dict) -> dict:
         query = urllib.parse.urlencode({k: v for k, v in params.items() if v not in (None, "")})

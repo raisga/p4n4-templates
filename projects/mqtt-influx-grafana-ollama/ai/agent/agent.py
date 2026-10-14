@@ -6,6 +6,11 @@ POST /api/chat gets a system prompt and the InfluxDB tools below; the server
 runs the tool calls the model makes and streams its answer back in Ollama's
 format. Every other request goes to Ollama unchanged.
 
+While it waits on a tool, the stream also says so, so a chat can show the
+user what is being looked up: a chunk with no text and a `step`,
+{"tool": name, "label": {"en": ..., "es": ...}, "state": "running"}, then
+the same with "state": "done" and "ok". Ollama clients ignore the key.
+
 The model never writes Flux. Tools take checked arguments and build the
 queries here, and the InfluxDB token stays in this container.
 
@@ -22,6 +27,8 @@ Standard library only, so it runs on the stock python image, offline.
     AGENT_THINK      true or false: whether thinking models think before
                      answering, for requests that don't say (empty: the
                      model's default)
+    AGENT_WARM_MODEL Model to read the system prompt and tools into at start,
+                     so the first question doesn't wait for it (empty: none)
     AGENT_PORT       Port to listen on (default 11434, Ollama's)
 """
 
@@ -34,6 +41,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -48,6 +56,7 @@ INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
 INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "")
 INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "raw_telemetry")
 THINK = {"true": True, "false": False}.get(os.environ.get("AGENT_THINK", "").strip().lower())
+WARM_MODEL = os.environ.get("AGENT_WARM_MODEL", "").strip()
 PORT = int(os.environ.get("AGENT_PORT", "11434"))
 
 # The iot layer's schema: measurement sensor_data, tags device and sensor
@@ -71,8 +80,11 @@ readings over MQTT, and every reading is stored in InfluxDB with a device id \
 Answer questions about devices, sensors and readings with the tools. Never \
 ask the user for device or sensor ids: call list_sensors to find them, then \
 the other tools for history and statistics. Never make up values: if a tool \
-returns nothing, say there is no data. Times are UTC; it is now {now}. Answer \
-briefly, with units when the data has them."""
+returns nothing, say there is no data. Times are UTC. The latest user message \
+starts with a <context> block the system adds (the current time and, if any, \
+the system status): use it, but never repeat or mention it, and answer the \
+question after it in the question's language. Answer briefly, with units when \
+the data has them."""
 
 RANGE_PARAM = {
     "type": "string",
@@ -295,6 +307,12 @@ def get_history(args: dict) -> dict:
 
 
 TOOL_FUNCTIONS = {"list_sensors": list_sensors, "get_stats": get_stats, "get_history": get_history}
+# What a chat shows while a tool runs, per language; local_tools.py's LABELS adds its own
+LABELS = {
+    "list_sensors": {"en": "latest readings", "es": "últimas lecturas"},
+    "get_stats": {"en": "statistics", "es": "estadísticas"},
+    "get_history": {"en": "history", "es": "historial"},
+}
 # Appended to SYSTEM_PROMPT by local_tools.py's PROMPT
 LOCAL_PROMPT = ""
 
@@ -309,7 +327,9 @@ def load_local_tools() -> None:
     (Ollama tool definition, function) pairs. A function takes the call's
     arguments (a dict) and returns a JSON-serializable dict; raising ToolError
     tells the model what to fix. An optional PROMPT string is appended to the
-    system prompt, e.g. to say when to use the tools.
+    system prompt, e.g. to say when to use the tools, and an optional LABELS
+    dict ({tool name: {language: label}}) names the tools in a chat while
+    they run (see `step`).
     """
     global LOCAL_PROMPT
     path = Path(__file__).with_name("local_tools.py")
@@ -327,6 +347,7 @@ def load_local_tools() -> None:
         TOOL_FUNCTIONS[name] = function
         names.append(name)
     LOCAL_PROMPT = getattr(module, "PROMPT", "").strip()
+    LABELS.update(getattr(module, "LABELS", {}))
     log(f"local tools from {path.name}: {', '.join(names) or 'none'}")
 
 
@@ -391,12 +412,52 @@ def ollama_chat(request: dict):
                 yield chunk
 
 
+def system_prompt() -> str:
+    return SYSTEM_PROMPT + (f"\n\n{LOCAL_PROMPT}" if LOCAL_PROMPT else "")
+
+
 def with_system_prompt(messages: list[dict]) -> list[dict]:
-    if any(m.get("role") == "system" for m in messages):
-        return list(messages)
-    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    prompt = SYSTEM_PROMPT.format(now=now) + (f"\n\n{LOCAL_PROMPT}" if LOCAL_PROMPT else "")
-    return [{"role": "system", "content": prompt}, *messages]
+    """
+    Our system prompt first, then the conversation. What changes from one
+    request to the next (the time, and the caller's system messages, such as
+    p4n4-api's system status) goes at the top of the latest user message, so
+    the prompt and tools stay an identical prefix that Ollama reads once and
+    reuses: on a CPU, reading them again takes most of a minute.
+    """
+    context = [f"Now: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}"]
+    context += [m.get("content") or "" for m in messages if m.get("role") == "system"]
+    rest = [dict(m) for m in messages if m.get("role") != "system"]
+    for m in reversed(rest):
+        if m.get("role") == "user":
+            m["content"] = "<context>\n" + "\n\n".join(context) + f"\n</context>\n\n{m.get('content') or ''}"
+            break
+    return [{"role": "system", "content": system_prompt()}, *rest]
+
+
+def warm(model: str) -> None:
+    """Have Ollama read the system prompt and tools now, so the first question reuses them."""
+    request = {
+        "model": model,
+        "messages": [{"role": "system", "content": system_prompt()}, {"role": "user", "content": "hi"}],
+        "tools": TOOLS,
+        "options": {"num_predict": 1},
+        **({"think": THINK} if THINK is not None else {}),
+    }
+    for attempt in range(30):
+        started = time.monotonic()
+        try:
+            for _ in ollama_chat(request):
+                pass
+            log(f"warmed {model} in {time.monotonic() - started:.0f}s")
+            return
+        except OllamaError as exc:
+            if "think" in request and "does not support thinking" in str(exc):
+                request.pop("think")
+                continue
+            if attempt == 29 or "unreachable" not in str(exc):
+                log(f"could not warm {model}: {exc}")
+                return
+            time.sleep(10)
 
 
 def agent_chat(body: dict, emit) -> dict:
@@ -439,7 +500,12 @@ def agent_chat(body: dict, emit) -> dict:
             return {**final, "message": {"role": "assistant", "content": reply}}
         messages.append({"role": "assistant", "content": text, "tool_calls": calls})
         for call in calls:
+            name = (call.get("function") or {}).get("name", "")
+            step = {"tool": name, "label": LABELS.get(name, {})}
+            progress = {"model": last.get("model"), "message": {"role": "assistant", "content": ""}, "done": False}
+            emit({**progress, "step": {**step, "state": "running"}})
             name, result = run_tool(call)
+            emit({**progress, "step": {**step, "state": "done", "ok": not result.startswith('{"error"')}})
             messages.append({"role": "tool", "tool_name": name, "content": result})
         if text.strip():
             emit({**last, "done": False, "message": {"role": "assistant", "content": "\n\n"}})
@@ -541,6 +607,8 @@ def main() -> None:
     if not INFLUXDB_TOKEN:
         log("INFLUXDB_TOKEN is empty: tools will fail until it is set")
     load_local_tools()
+    if WARM_MODEL:
+        threading.Thread(target=warm, args=(WARM_MODEL,), daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.daemon_threads = True
     log(f"p4n4 agent on :{PORT}: Ollama {OLLAMA_URL}, InfluxDB {INFLUXDB_URL} bucket {INFLUXDB_BUCKET}")

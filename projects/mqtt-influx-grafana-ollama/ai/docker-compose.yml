@@ -28,6 +28,8 @@ services:
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
       # "-", not ":-": AGENT_THINK= (empty) means the model's default
       AGENT_THINK: ${AGENT_THINK-false}
+      # Read the prompt and tools into this model at start (empty: don't)
+      AGENT_WARM_MODEL: ${OLLAMA_MODEL-gemma4:e2b}
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       # agent.py, plus the project's local_tools.py if it has one

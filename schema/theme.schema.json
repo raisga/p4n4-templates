@@ -54,7 +54,20 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "enum": ["services", "edge", "agent", "grafana", "video"] }
+      "items": { "enum": ["services", "edge", "agent", "grafana", "video", "feed"] }
+    },
+    "assistant": {
+      "description": "The Assistant tab's starter questions: a list for every language, or one per language code (* as the fallback).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "suggestions": {
+          "oneOf": [
+            { "$ref": "#/$defs/questions" },
+            { "type": "object", "additionalProperties": { "$ref": "#/$defs/questions" } }
+          ]
+        }
+      }
     },
     "links": {
       "type": "array",
@@ -101,6 +114,11 @@
     }
   },
   "$defs": {
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
     "palette": {
       "type": "object",
       "additionalProperties": false,

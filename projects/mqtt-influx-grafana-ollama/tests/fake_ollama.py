@@ -6,7 +6,8 @@ POST /api/chat, streaming NDJSON like Ollama:
 - the last message is a tool result: replies "result: <tool content>", plus
   "system prompt: yes" when the request starts with a system message;
 - tools are offered and the last user message is a JSON tool call
-  ({"name": ..., "arguments": {...}}): asks for that tool call;
+  ({"name": ..., "arguments": {...}}), after the agent's <context> block:
+  asks for that tool call;
 - otherwise: replies "no tools".
 Anything else gets a small JSON answer (/api/tags lists one model).
 """
@@ -14,9 +15,20 @@ Anything else gets a small JSON answer (/api/tags lists one model).
 from __future__ import annotations
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL = "fake:latest"
+# What the agent puts before the user's words (agent.py with_system_prompt)
+CONTEXT = re.compile(r"^<context>\n.*?\n</context>\n\n", re.S)
+
+
+def tool_call(content: str) -> dict | None:
+    try:
+        call = json.loads(CONTEXT.sub("", content, count=1))
+    except json.JSONDecodeError:
+        return None
+    return call if isinstance(call, dict) else None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -48,8 +60,7 @@ class Handler(BaseHTTPRequestHandler):
             system = "yes" if messages[0].get("role") == "system" else "no"
             # Two chunks, to check the agent streams them through
             chunks = [{"content": "result: "}, {"content": f"{last['content']}\nsystem prompt: {system}"}]
-        elif body.get("tools") and last.get("role") == "user":
-            call = json.loads(last["content"])
+        elif body.get("tools") and last.get("role") == "user" and (call := tool_call(last["content"])):
             chunks = [{"content": "", "tool_calls": [{"function": call}]}]
         else:
             chunks = [{"content": "no tools"}]

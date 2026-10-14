@@ -166,7 +166,7 @@ def camera_errors(cameras: object, published: set[int]) -> list[str]:
         if not isinstance(camera, dict):
             errors.append(f"{where} must be an object")
             continue
-        errors += [f"{where}.{k} is not a known setting" for k in sorted(set(camera) - {"id", "name", "url", "port", "path"})]
+        errors += [f"{where}.{k} is not a known setting" for k in sorted(set(camera) - {"id", "name", "url", "port", "path", "device"})]
         cam_id = camera.get("id")
         if not (isinstance(cam_id, str) and CAMERA_ID.match(cam_id)):
             errors.append(f"{where}.id must be lowercase letters, digits and dashes")
@@ -176,8 +176,14 @@ def camera_errors(cameras: object, published: set[int]) -> list[str]:
         if not (isinstance(camera.get("name"), str) and camera["name"].strip()):
             errors.append(f"{where}.name must be a non-empty string")
         url, port, path = camera.get("url"), camera.get("port"), camera.get("path")
-        if (url is None) == (port is None):
-            errors.append(f"{where} needs either url or port (with an optional path)")
+        device = camera.get("device")
+        if [url, port, device].count(None) != 2:
+            errors.append(f"{where} needs one of url, port (with an optional path) or device")
+        elif device is not None:
+            if device not in ("back", "front"):
+                errors.append(f'{where}.device must be "back" or "front"')
+            if path is not None:
+                errors.append(f"{where}.path only goes with port")
         elif url is not None:
             if not (isinstance(url, str) and re.match(r"^https?://[^/\s]+", url)):
                 errors.append(f"{where}.url must be an absolute http(s) URL")

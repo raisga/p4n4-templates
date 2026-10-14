@@ -50,6 +50,10 @@ check("list_sensors returns the latest reading with its unit", temperature.get("
 check("chat replies stream through, ending with one done chunk",
       len(lines) >= 3 and lines[-1].get("done") is True and not any(c.get("done") for c in lines[:-1]), lines)
 check("the agent adds its system prompt", text.endswith("system prompt: yes"), text)
+steps = [c["step"] for c in lines if "step" in c]
+check("the stream says which tool runs, then that it's done",
+      [(s["tool"], s["state"]) for s in steps] == [("list_sensors", "running"), ("list_sensors", "done")]
+      and steps[1].get("ok") is True and steps[0]["label"].get("en"), steps)
 
 stats = result(chat("get_stats", {"sensor": "temperature", "device": "smoke-01", "range": "1h"})[0])["rows"]
 check("get_stats returns min/max/mean/count", stats and stats[0].get("min") == 21.5
