@@ -51,7 +51,7 @@ projects/<template-name>/
 └── README.md
 ```
 
-- Each layer is a separate Compose project. `p4n4 up` starts them in dependency order (iot, ai, edge) and `p4n4 down` stops them in reverse.
+- Each layer is a separate Compose project. `p4n4 up` starts them in dependency order (iot, ai, extras) and `p4n4 down` stops them in reverse.
 - The iot layer creates `p4n4-net`. The others declare it `external: true` with `name: p4n4-net`, like `stacks/ai`.
 - Each layer has its own `.env.example`, documenting exactly the variables its compose file uses. A variable both layers need is repeated in both.
 - Service names must be unique across layers, and so must host ports. `scripts/validate.py` checks both, since Compose can't when the layers are separate projects.

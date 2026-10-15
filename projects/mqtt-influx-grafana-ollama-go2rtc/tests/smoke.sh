@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# End-to-end smoke test: starts the iot and edge layers in a throwaway copy, as
+# End-to-end smoke test: starts the iot and extras layers in a throwaway copy, as
 # separate Compose projects the way `p4n4 up` does, and checks that contract
 # reads reach SQLite (the agent API), InfluxDB, MQTT and every Grafana panel,
 # that no plate reaches InfluxDB or MQTT, that bad reads are refused, and that
@@ -60,12 +60,12 @@ networks:
     ipam: !reset {}
 EOF
 
-# The edge layer: the road camera stands in as an HTTP MJPEG URL (the plates
+# The extras layer: the road camera stands in as an HTTP MJPEG URL (the plates
 # stream itself; its ?, = and & exercise video.sh's quoting), the plates stream
-# loops a clip from edge/clips/, and no uplink (profile "device" off)
+# loops a clip from extras/clips/, and no uplink (profile "device" off)
 sed -e 's|^CAMERA_URL=.*|CAMERA_URL=http://localhost:1984/api/stream.mjpeg?src=plates\&smoke=1|' \
-    ../edge/.env.example > ../edge/.env
-cat > ../edge/docker-compose.override.yml <<EOF
+    ../extras/.env.example > ../extras/.env
+cat > ../extras/docker-compose.override.yml <<EOF
 services:
   video:
     container_name: !reset null
@@ -84,14 +84,14 @@ GRAFANA_PASSWORD="$(env_value GRAFANA_PASSWORD)"
 
 PROJECT=p4n4-alpr-smoke
 compose() { docker compose --project-name "$PROJECT" "$@"; }
-compose_edge() { docker compose --project-directory ../edge --project-name "$PROJECT-edge" "$@"; }
+compose_extras() { docker compose --project-directory ../extras --project-name "$PROJECT-extras" "$@"; }
 
 cleanup() {
   status=$?
   if [ "${KEEP:-0}" = 1 ]; then
-    echo "KEEP=1: stacks left running in $WORK_DIR (projects $PROJECT, $PROJECT-edge)"
+    echo "KEEP=1: stacks left running in $WORK_DIR (projects $PROJECT, $PROJECT-extras)"
   else
-    compose_edge down -v --remove-orphans >/dev/null 2>&1 || true
+    compose_extras down -v --remove-orphans >/dev/null 2>&1 || true
     compose down -v --remove-orphans >/dev/null 2>&1 || true
     rm -rf "$WORK_DIR"
   fi
@@ -196,29 +196,29 @@ for _ in $(seq 1 30); do
 done
 python3 "$WORK_DIR/tests/check_dashboards.py" "$PROJECT" "$GRAFANA_USER" "$GRAFANA_PASSWORD" || failed=1
 
-echo "== edge layer: video (project $PROJECT-edge)"
+echo "== extras layer: video (project $PROJECT-extras)"
 # A 2-second clip for the plates stream to loop, made with the video image's own ffmpeg
-docker run --rm --user "$(id -u):$(id -g)" --entrypoint ffmpeg -v "$WORK_DIR/edge/clips:/out" alexxit/go2rtc:1.9.14 \
+docker run --rm --user "$(id -u):$(id -g)" --entrypoint ffmpeg -v "$WORK_DIR/extras/clips:/out" alexxit/go2rtc:1.9.14 \
   -hide_banner -loglevel error -f lavfi -i testsrc2=size=320x240:rate=10 -t 2 -c:v libx264 -pix_fmt yuv420p /out/plates.mp4
-compose_edge up -d --wait --quiet-pull >/dev/null 2>&1 || { compose_edge logs --no-color --tail 30; exit 1; }
+compose_extras up -d --wait --quiet-pull >/dev/null 2>&1 || { compose_extras logs --no-color --tail 30; exit 1; }
 # One JPEG from each camera .p4n4.json lists, as the dashboard's Video tab asks for them
 for src in $(python3 -c "import json; print(' '.join(c['path'].split('src=')[1] for c in json.load(open('$WORK_DIR/.p4n4.json'))['dashboard']['cameras']))"); do
   magic=""
   for _ in $(seq 1 15); do
-    magic="$(compose_edge exec -T video sh -c "wget -qO- 'http://localhost:1984/api/frame.jpeg?src=$src' | head -c 3 | od -An -tx1" 2>/dev/null | tr -d ' \n')" || true
+    magic="$(compose_extras exec -T video sh -c "wget -qO- 'http://localhost:1984/api/frame.jpeg?src=$src' | head -c 3 | od -An -tx1" 2>/dev/null | tr -d ' \n')" || true
     [ "$magic" = ffd8ff ] && break
     sleep 2
   done
   [ "$magic" = ffd8ff ] && ok "camera '$src' serves JPEG frames" || fail "camera '$src': no JPEG (got '$magic')"
 done
-bytes="$(compose_edge exec -T video sh -c "timeout 4 wget -qO- 'http://localhost:1984/api/stream.mjpeg?src=road' | wc -c" 2>/dev/null | tr -d ' \r' || true)"
+bytes="$(compose_extras exec -T video sh -c "timeout 4 wget -qO- 'http://localhost:1984/api/stream.mjpeg?src=road' | wc -c" 2>/dev/null | tr -d ' \r' || true)"
 [ "${bytes:-0}" -gt 100000 ] && ok "the road camera streams MJPEG ($bytes bytes in 4 s)" || fail "road MJPEG stream: ${bytes:-0} bytes"
-config="$(compose_edge exec -T video cat /tmp/go2rtc.yaml)"
+config="$(compose_extras exec -T video cat /tmp/go2rtc.yaml)"
 echo "$config" | grep -q "src=plates&smoke=1'" && echo "$config" | grep -q "ffmpeg:road#video=mjpeg" \
   && ok "CAMERA_URL is quoted, with an MJPEG transcoding fallback" || fail "go2rtc config: $config"
-compose_edge logs video 2>&1 | grep -q "smoke=1" && fail "the video log shows the camera URL" || ok "the video log leaves camera URLs out"
-echo "$config" | grep -q -- "-stream_loop -1 -i /p4n4/clips/plates.mp4" && compose_edge logs video 2>&1 | grep -q "plates from clips/plates.mp4" \
-  && ok "a clip in edge/clips/ replaces the plates stream's demo pattern" || fail "plates clip: $config"
+compose_extras logs video 2>&1 | grep -q "smoke=1" && fail "the video log shows the camera URL" || ok "the video log leaves camera URLs out"
+echo "$config" | grep -q -- "-stream_loop -1 -i /p4n4/clips/plates.mp4" && compose_extras logs video 2>&1 | grep -q "plates from clips/plates.mp4" \
+  && ok "a clip in extras/clips/ replaces the plates stream's demo pattern" || fail "plates clip: $config"
 
 if [ "$failed" = 0 ]; then echo "PASS"; else echo "FAILED"; fi
 exit "$failed"

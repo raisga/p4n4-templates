@@ -3,7 +3,7 @@
 > Road traffic counting with automatic licence plate recognition (ALPR), with live video in p4n4-dashboard. An edge device at the roadside reads the plates of the vehicles two cameras see and posts them. An ingest service keeps the plates for a retention period and answers questions with fixed numbers. Grafana shows the traffic without a single plate, the Agent tab explains it and looks plates up, and the **Video tab** plays the road camera and the device's plate view. Works with no hardware: a demo road and synthetic video stand in for them.
 
 ```
-  edge/ (at the site)
+  extras/ (at the site)
   road camera ────────┐                     ┌──► p4n4-dashboard Video tab (MJPEG)
   device's plate view ┴──► video :1984 (go2rtc)
   device SQLite (./data) ──► uplink ══HTTPS, X-Site-Token══╗   (profile "device")
@@ -20,17 +20,19 @@ The device side follows the **ALPR device ↔ web contract 0.1**: schemas `p4n4.
 
 Template 0.3.0 replaced the retail store analytics of 0.2.0 (`p4n4.retail.*`) with ALPR. Projects made from 0.2.0 keep their copy; there's no upgrade path between the two.
 
+Template 0.4.0 renamed the `edge/` layer to `extras/`: p4n4-edge became [p4n4-extras](https://github.com/raisga/p4n4-extras), the home for optional services such as this video and uplink, and its inference runner moved into p4n4-ai. Nothing else changed. In a project made from 0.3.0, run `p4n4 down`, then `p4n4 migrate edge`: it renames the layer and keeps its Compose project name, so the uplink's state volume stays. By hand: rename `edge/` to `extras/`, add `COMPOSE_PROJECT_NAME=edge` to `extras/.env` (the name Compose gave it before), and change `edge` to `extras` in `layers` in `.p4n4.json`.
+
 The [road traffic use case](../../docs/use-cases/road-traffic.md) walks through a deployment: the demo, the device at the roadside, p4n4-api and a branded dashboard.
 
 ## Quick start
 
 ```bash
 cp -r mqtt-influx-grafana-ollama-go2rtc my-road && cd my-road
-for layer in iot ai edge; do cp $layer/.env.example $layer/.env; done
-p4n4 up        # iot, then ai, then edge
+for layer in iot ai extras; do cp $layer/.env.example $layer/.env; done
+p4n4 up        # iot, then ai, then extras
 ```
 
-Without the CLI, start the layers in that order: `(cd iot && docker compose up -d) && (cd ai && docker compose up -d) && (cd edge && docker compose up -d)`. ai and edge join the `p4n4-net` network that iot creates.
+Without the CLI, start the layers in that order: `(cd iot && docker compose up -d) && (cd ai && docker compose up -d) && (cd extras && docker compose up -d)`. ai and extras join the `p4n4-net` network that iot creates.
 
 | | |
 |---|---|
@@ -54,10 +56,10 @@ Everything it posts is marked `"synthetic": true`, the plates are made up, and t
 |---|---|
 | `iot/` | `ingest` (`iot/ingest/`), `mqtt`, `influxdb`, `grafana`, and the demo `simulator`. Creates `p4n4-net` |
 | `ai/` | `agent` (the Ollama API with tools; `agent.py` is [`mqtt-influx-grafana-ollama`](../mqtt-influx-grafana-ollama)'s, unchanged) and `ollama`. The traffic tools are in `ai/agent/local_tools.py` |
-| `edge/` | `video` (go2rtc) and `uplink` (profile `device`). Runs at the site |
+| `extras/` | `video` (go2rtc) and `uplink` (profile `device`). Runs at the site |
 | `theme/` | A sample white-label brand (`roadwatch`) with the Video tab enabled. Replace it with your client's |
 
-Tokens must agree between layers: `SITE_TOKEN` in `iot/.env` and `edge/.env`, and `INGEST_READ_TOKEN` in `iot/.env` and `ai/.env`. Generate real ones with `openssl rand -hex 24`.
+Tokens must agree between layers: `SITE_TOKEN` in `iot/.env` and `extras/.env`, and `INGEST_READ_TOKEN` in `iot/.env` and `ai/.env`. Generate real ones with `openssl rand -hex 24`.
 
 ## Plates and privacy
 
@@ -72,14 +74,14 @@ A plate is personal data in many places. Check the law where the cameras are (si
 
 ## Video
 
-`edge/config/go2rtc/video.sh` writes go2rtc's config from two variables in `edge/.env`. Each stream becomes a camera in the dashboard:
+`extras/config/go2rtc/video.sh` writes go2rtc's config from two variables in `extras/.env`. Each stream becomes a camera in the dashboard:
 
 | Stream | Source | Without it |
 |---|---|---|
-| `road` | `CAMERA_URL`: `rtsp://user:pass@ip:554/stream`, or an `http://` MJPEG stream. H.264 is transcoded to MJPEG; a camera substream (640×360) keeps that cheap | `edge/clips/road.mp4` on a loop, else a test pattern |
-| `plates` | `OVERLAY_URL`: the device's annotated view as MJPEG, with the vehicles it tracks and the plates it reads | `edge/clips/plates.mp4` on a loop, else the test pattern with a moving vehicle box and a made-up plate |
+| `road` | `CAMERA_URL`: `rtsp://user:pass@ip:554/stream`, or an `http://` MJPEG stream. H.264 is transcoded to MJPEG; a camera substream (640×360) keeps that cheap | `extras/clips/road.mp4` on a loop, else a test pattern |
+| `plates` | `OVERLAY_URL`: the device's annotated view as MJPEG, with the vehicles it tracks and the plates it reads | `extras/clips/plates.mp4` on a loop, else the test pattern with a moving vehicle box and a made-up plate |
 
-**Demo footage.** Drop recorded clips into `edge/clips/` as `road.mp4` and `plates.mp4` (any length; audio is dropped) to show a real-looking road before cameras are connected. They loop at real speed, and `.gitignore` keeps them out of git. Footage of a real road shows real plates: use footage you may show, and check its licence. The dashboard's camera caption covers the bottom of each tile, so keep any credit clear of that.
+**Demo footage.** Drop recorded clips into `extras/clips/` as `road.mp4` and `plates.mp4` (any length; audio is dropped) to show a real-looking road before cameras are connected. They loop at real speed, and `.gitignore` keeps them out of git. Footage of a real road shows real plates: use footage you may show, and check its licence. The dashboard's camera caption covers the bottom of each tile, so keep any credit clear of that.
 
 `.p4n4.json` lists both as `dashboard.cameras`. p4n4-dashboard reads them through p4n4-api and shows them in the **Video** tab on whatever host it's connected to:
 
@@ -141,7 +143,7 @@ CREATE TABLE reads (read_id TEXT PRIMARY KEY, site_id TEXT NOT NULL, camera_id T
                     synthetic INTEGER NOT NULL DEFAULT 0);
 ```
 
-Point the uplink at it, with the `device` profile in `edge/.env`:
+Point the uplink at it, with the `device` profile in `extras/.env`:
 
 ```bash
 COMPOSE_PROFILES=device
@@ -153,7 +155,7 @@ SITE_TOKEN=<the site's token>
 
 The uplink forwards new or replaced rows, and sends a heartbeat every 30 s from `/proc` and `/sys` (CPU/GPU, temperatures, memory, disk, vehicles in the last minute). It keeps a cursor and retries with backoff. Rows the ingest service refuses are logged by id and skipped. `DEVICE_API` (the device's own HTTP API) tells healthy from degraded. Plates travel in these requests: use HTTPS off the site's network.
 
-On a machine of its own, run `docker network create p4n4-net` once before `docker compose up -d` in `edge/`.
+On a machine of its own, run `docker network create p4n4-net` once before `docker compose up -d` in `extras/`.
 
 ## Testing
 
@@ -161,7 +163,7 @@ On a machine of its own, run `docker network create p4n4-net` once before `docke
 python3 tests/test_ingest.py        # contract rules, retention, periods, checks, no plates in the copies (no Docker)
 python3 tests/test_local_tools.py   # the agent's traffic tools against an in-process ingest (no Docker)
 python3 tests/test_uplink.py        # the uplink against a device database (no Docker)
-./tests/smoke.sh                    # iot and edge end to end, isolated (Docker)
+./tests/smoke.sh                    # iot and extras end to end, isolated (Docker)
 ```
 
 The smoke test posts two seeded days with `simulate.py --once`, then checks:

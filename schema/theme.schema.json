@@ -4,57 +4,117 @@
   "title": "p4n4-dashboard theme (brand.json)",
   "description": "White-label theme a template ships for p4n4-dashboard, in the theme directory named by .p4n4.json dashboard.theme. It's the dashboard's brands/<id>/brand.json format: install it with `dart run tool/brand.dart install <project>`. Color contrast (WCAG AA) is checked by `dart run tool/brand.dart check <theme-dir>`, not here.",
   "type": "object",
-  "required": ["id", "appName", "wordmark", "native"],
+  "required": [
+    "id",
+    "appName",
+    "wordmark",
+    "native"
+  ],
   "additionalProperties": false,
   "properties": {
     "id": {
       "description": "Brand id: the folder name it's installed under (brands/<id>/). \"p4n4\" is reserved for the default brand.",
       "type": "string",
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
-      "not": { "const": "p4n4" }
+      "not": {
+        "const": "p4n4"
+      }
     },
-    "appName": { "type": "string", "minLength": 1 },
+    "appName": {
+      "type": "string",
+      "minLength": 1
+    },
     "wordmark": {
       "type": "object",
-      "required": ["text"],
+      "required": [
+        "text"
+      ],
       "additionalProperties": false,
       "properties": {
-        "text": { "type": "string", "minLength": 1 },
-        "suffix": { "type": "string" }
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suffix": {
+          "type": "string"
+        }
       }
     },
     "logo": {
-      "description": "App-bar logo file in the theme directory; replaces the wordmark.",
-      "type": "string",
-      "minLength": 1
+      "description": "App-bar logo file in the theme directory; replaces the wordmark. Or one file per mode, when one logo can't read on both backgrounds.",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "properties": {
+            "light": {
+              "type": "string",
+              "minLength": 1
+            },
+            "dark": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "light",
+            "dark"
+          ],
+          "additionalProperties": false
+        }
+      ]
     },
     "platform": {
       "description": "Replaces \"p4n4\" in stack and service names (<platform>-iot).",
       "type": "string",
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
     },
-    "tagline": { "type": "string" },
+    "tagline": {
+      "type": "string"
+    },
     "fonts": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "display": { "type": "string", "minLength": 1 },
-        "mono": { "type": "string", "minLength": 1 }
+        "display": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mono": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "colors": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "light": { "$ref": "#/$defs/palette" },
-        "dark": { "$ref": "#/$defs/palette" }
+        "light": {
+          "$ref": "#/$defs/palette"
+        },
+        "dark": {
+          "$ref": "#/$defs/palette"
+        }
       }
     },
     "tabs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "enum": ["services", "edge", "agent", "grafana", "video", "feed"] }
+      "items": {
+        "enum": [
+          "services",
+          "edge",
+          "agent",
+          "grafana",
+          "video",
+          "feed"
+        ]
+      }
     },
     "assistant": {
       "description": "The Assistant tab's starter questions: a list for every language, or one per language code (* as the fallback).",
@@ -63,21 +123,141 @@
       "properties": {
         "suggestions": {
           "oneOf": [
-            { "$ref": "#/$defs/questions" },
-            { "type": "object", "additionalProperties": { "$ref": "#/$defs/questions" } }
+            {
+              "$ref": "#/$defs/questions"
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/questions"
+              }
+            }
           ]
         }
       }
+    },
+    "tour": {
+      "description": "Replaces the first-run tour's text (the viewer's tour of the shell), step by step: text for every language, or language code (or *) → text.",
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "welcome",
+          "navigation",
+          "theme",
+          "settings",
+          "signOut"
+        ]
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ]
+      }
+    },
+    "video": {
+      "description": "The Video tab: demo cameras played as files, and the look of the vision overlay drawn over them.",
+      "type": "object",
+      "properties": {
+        "demoCameras": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "url"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "demoCredits": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        },
+        "overlay": {
+          "description": "The vision overlay's look: the people's colour, each object kind's (by its id in the project's vision file), and which parts show. Left out: the dashboard's own.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "people": {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            },
+            "objects": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+              }
+            },
+            "showObjects": {
+              "type": "boolean"
+            },
+            "showTags": {
+              "type": "boolean"
+            },
+            "showKey": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "links": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["label", "url"],
+        "required": [
+          "label",
+          "url"
+        ],
         "additionalProperties": false,
         "properties": {
-          "label": { "type": "string", "minLength": 1 },
-          "url": { "type": "string", "pattern": "^https?://" }
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https?://"
+          }
         }
       }
     },
@@ -85,19 +265,46 @@
       "description": "First-run dashboard settings (host, themeMode, clientTabs, …). Leave the Grafana page to .p4n4.json dashboard.grafana_path.",
       "type": "object",
       "properties": {
-        "themeMode": { "enum": ["system", "light", "dark"] },
-        "agentBackend": { "enum": ["ollama", "letta"] },
-        "edgeDemo": { "type": "boolean" },
-        "grafanaKiosk": { "type": "boolean" }
+        "themeMode": {
+          "enum": [
+            "system",
+            "light",
+            "dark"
+          ]
+        },
+        "agentBackend": {
+          "enum": [
+            "ollama",
+            "letta"
+          ]
+        },
+        "edgeDemo": {
+          "type": "boolean"
+        },
+        "grafanaKiosk": {
+          "type": "boolean"
+        },
+        "videoDemo": {
+          "type": "boolean"
+        }
       },
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "native": {
       "type": "object",
-      "required": ["displayName", "applicationId", "bundleId"],
+      "required": [
+        "displayName",
+        "applicationId",
+        "bundleId"
+      ],
       "additionalProperties": false,
       "properties": {
-        "displayName": { "type": "string", "minLength": 1 },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
         "applicationId": {
           "description": "Android application ID.",
           "type": "string",
@@ -108,8 +315,12 @@
           "type": "string",
           "pattern": "^[a-zA-Z0-9-]+(\\.[a-zA-Z0-9-]+)+$"
         },
-        "company": { "type": "string" },
-        "localNetworkUsage": { "type": "string" }
+        "company": {
+          "type": "string"
+        },
+        "localNetworkUsage": {
+          "type": "string"
+        }
       }
     }
   },
@@ -117,7 +328,10 @@
     "questions": {
       "type": "array",
       "minItems": 1,
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "palette": {
       "type": "object",

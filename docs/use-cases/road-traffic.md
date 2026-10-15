@@ -35,7 +35,7 @@ hardware is installed.
 
 | Piece | Repo | Role here |
 |---|---|---|
-| `mqtt-influx-grafana-ollama-go2rtc` template | `p4n4-templates` | Three layers: `iot` (ingest service, InfluxDB, MQTT, Grafana *Traffic* dashboard), `ai` (agent with the traffic tools, Ollama), `edge` (go2rtc video, uplink) |
+| `mqtt-influx-grafana-ollama-go2rtc` template | `p4n4-templates` | Three layers: `iot` (ingest service, InfluxDB, MQTT, Grafana *Traffic* dashboard), `ai` (agent with the traffic tools, Ollama), `extras` (go2rtc video, uplink) |
 | ALPR device ↔ web contract 0.1 | the template (`iot/ingest/contract.py`) | What the device posts: `p4n4.alpr.read/0.1` per vehicle, `p4n4.alpr.heartbeat/0.1` |
 | `.p4n4.json` `dashboard` block | `p4n4-lib` (validated), the template (declared) | Grafana page, tabs, theme, and the two cameras for the Video tab |
 | p4n4-api | `p4n4-api` | Serves the manifest, service status and host metrics, and relays the assistant behind sign-in |
@@ -59,7 +59,7 @@ Copy the template and create each layer's `.env`:
 ```bash
 cp -r tools/templates/projects/mqtt-influx-grafana-ollama-go2rtc ~/projects/parkside
 cd ~/projects/parkside
-for layer in iot ai edge; do cp $layer/.env.example $layer/.env; done
+for layer in iot ai extras; do cp $layer/.env.example $layer/.env; done
 ```
 
 Rename the project in `.p4n4.json` (`"project": "parkside"`). Then edit the `.env` files.
@@ -67,10 +67,10 @@ Tokens must agree between layers:
 
 | Variable | Layer(s) | Set it to |
 |---|---|---|
-| `SITE_ID` | `iot`, `edge` | The site's id, e.g. `parkside-access` |
-| `SITE_TOKEN` | `iot`, `edge` | The site's write token: `openssl rand -hex 24` |
+| `SITE_ID` | `iot`, `extras` | The site's id, e.g. `parkside-access` |
+| `SITE_TOKEN` | `iot`, `extras` | The site's write token: `openssl rand -hex 24` |
 | `INGEST_READ_TOKEN` | `iot`, `ai` | The read token for the agent API, plate lookups included: `openssl rand -hex 24` |
-| `SITE_TZ` | `iot`; `TZ` in `edge` | The site's time zone, e.g. `America/Panama`. "Today", weekdays and peak hours follow it |
+| `SITE_TZ` | `iot`; `TZ` in `extras` | The site's time zone, e.g. `America/Panama`. "Today", weekdays and peak hours follow it |
 | `SITE_SPEED_LIMIT` | `iot` | The road's limit in km/h, if the device measures speed; empty if it doesn't |
 | `RETENTION_DAYS` | `iot` | How long plates are kept: 30 here |
 | `INFLUXDB_PASSWORD`, `GRAFANA_PASSWORD` | `iot` | Your own secrets |
@@ -79,15 +79,15 @@ Tokens must agree between layers:
 | `GRAFANA_ALLOW_EMBEDDING` | `iot` | `true` if the team uses the dashboard in a browser |
 | `COMPOSE_PROFILES` | `iot` | Keep `demo` until the device posts; then clear it |
 
-Start the layers in order (ai and edge join the `p4n4-net` network that iot creates) and
+Start the layers in order (ai and extras join the `p4n4-net` network that iot creates) and
 check them:
 
 ```bash
-p4n4 up          # iot, then ai, then edge
+p4n4 up          # iot, then ai, then extras
 p4n4 validate    # .p4n4.json, dashboard settings and theme, each layer's compose file and .env
 ```
 
-Without the CLI: `(cd iot && docker compose up -d) && (cd ai && docker compose up -d) && (cd edge && docker compose up -d)`.
+Without the CLI: `(cd iot && docker compose up -d) && (cd ai && docker compose up -d) && (cd extras && docker compose up -d)`.
 
 On first start Ollama downloads `gemma4:e2b` (about 4.6 GB). `p4n4 logs ai` (or
 `docker compose logs -f ollama` in `ai/`) prints `model gemma4:e2b is ready` when it's done.
@@ -118,15 +118,15 @@ assistant says the data is from the demo.
 
 Without cameras, the `video` service plays a test pattern, and a moving vehicle box with
 a made-up plate on the `plates` stream. To show the client something closer to a road,
-drop two clips into `edge/clips/` as `road.mp4` and `plates.mp4` and run
-`docker compose up -d` in `edge/`. They loop at real speed and git ignores them. Footage of
+drop two clips into `extras/clips/` as `road.mp4` and `plates.mp4` and run
+`docker compose up -d` in `extras/`. They loop at real speed and git ignores them. Footage of
 a real road shows real plates, so use footage you may show, and check its licence.
 
 ## 2. Install the device at the roadside
 
 The ALPR service on the device writes each vehicle to a `reads` table in `alpr_live.db`
 (the template [README](../../projects/mqtt-influx-grafana-ollama-go2rtc/README.md#edge-device)
-has the columns). The edge layer runs next to it, on the device itself or on a machine
+has the columns). The extras layer runs next to it, on the device itself or on a machine
 that can read that file, and does two things:
 
 - **uplink** forwards new rows to the ingest service, and sends a heartbeat (CPU/GPU,
@@ -135,7 +135,7 @@ that can read that file, and does two things:
 - **video** (go2rtc) serves the road camera and the device's plate view as MJPEG, on the
   site's network only.
 
-Copy the project's `edge/` directory to the device, then set `edge/.env` there:
+Copy the project's `extras/` directory to the device, then set `extras/.env` there:
 
 ```bash
 COMPOSE_PROFILES=device
@@ -159,8 +159,8 @@ LAN address or hostname, not `localhost`.
 
 On the server, clear `COMPOSE_PROFILES` in `iot/.env` and run
 `docker compose up -d --remove-orphans` in `iot/` to stop the demo road. The device's
-edge layer replaces the server's: run `docker compose down` in the server's `edge/`, then
-remove `edge` from `layers` in the server's `.p4n4.json`, so `p4n4 up` and
+extras layer replaces the server's: run `docker compose down` in the server's `extras/`, then
+remove `extras` from `layers` in the server's `.p4n4.json`, so `p4n4 up` and
 `p4n4 validate` leave it out.
 
 The device's `video` service now runs on the device, not on the host the dashboard
@@ -218,7 +218,7 @@ Replace it with the park's brand in `theme/brand.json`:
   "id": "roadwatch",                          // unique per client; "p4n4" is reserved
   "appName": "Roadwatch",
   "wordmark": { "text": "road", "suffix": ".watch" },
-  "platform": "road",                         // road-iot, road-ai, road-edge
+  "platform": "road",                         // road-iot, road-ai, road-extras
   "tabs": ["services", "edge", "agent", "grafana", "video"],
   "defaults": {
     "themeMode": "dark",
@@ -325,7 +325,7 @@ These were run against the template on Linux:
 - [x] `tests/smoke.sh` passes: the agent API, plate lookups and their access rules, retention, the InfluxDB and MQTT copies without plates, an ingest log without plates, every Grafana panel, and JPEG frames from both cameras in `.p4n4.json`
 - [ ] The Assistant tab with `gemma4:e2b` answering the questions above
 - [ ] The dashboard (`roadwatch` build) on a tablet, with Video, Assistant and Grafana in the normie view
-- [ ] A Jetson running an ALPR service, with the edge layer on it and the iot and ai layers on a server
+- [ ] A Jetson running an ALPR service, with the extras layer on it and the iot and ai layers on a server
 - [ ] Real cameras over RTSP, by day and at night
 
 ## Limitations and next steps

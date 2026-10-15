@@ -48,7 +48,7 @@ Every template is **self-contained**: the directory is a runnable project on its
 | [`mqtt-influx-grafana-ollama`](projects/mqtt-influx-grafana-ollama) | iot + ai | The same pipeline as an iot layer, plus an ai layer: a local LLM (Gemma 4 E2B on Ollama) for p4n4-dashboard's Agent tab that queries InfluxDB through tool calls |
 | [`mqtt-influx-grafana-n8n`](projects/mqtt-influx-grafana-n8n) | iot + ai | Cold-chain compliance: the pipeline as an iot layer, plus n8n workflows in an ai layer that alert on excursions against each unit's limits, escalate when nobody acknowledges, take the corrective action through a signed link, and email and save a daily record (CSV + HTML). A local Mailpit inbox catches the emails; Slack and Telegram are optional |
 | [`mqtt-influx-grafana-ollama-letta`](projects/mqtt-influx-grafana-ollama-letta) | iot + ai | Maintenance assistant with memory: vibration, bearing temperature and current from pumps and fans, plus a Letta agent on a local Ollama model for p4n4-dashboard's Agent tab. It keeps an equipment register and past incidents in its memory, reads trends through InfluxDB tools, and logs reported maintenance to its memory and to Grafana. Two weeks of demo history, with pump-2 repeating the pattern before its last failure |
-| [`mqtt-influx-grafana-ollama-go2rtc`](projects/mqtt-influx-grafana-ollama-go2rtc) | iot + ai + edge | Road traffic counting with ALPR: an ingest service for the ALPR device ↔ web contract (plates in SQLite for a retention period; counts without plates in InfluxDB + MQTT), a Grafana traffic dashboard, an agent that answers with deterministic numbers and looks plates up, and go2rtc streams for p4n4-dashboard's Video tab. Demo road and synthetic video included |
+| [`mqtt-influx-grafana-ollama-go2rtc`](projects/mqtt-influx-grafana-ollama-go2rtc) | iot + ai + extras | Road traffic counting with ALPR: an ingest service for the ALPR device ↔ web contract (plates in SQLite for a retention period; counts without plates in InfluxDB + MQTT), a Grafana traffic dashboard, an agent that answers with deterministic numbers and looks plates up, and go2rtc streams for p4n4-dashboard's Video tab. Demo road and synthetic video included |
 
 ### Planned
 
@@ -56,7 +56,7 @@ The demo template series (status of the scaffolded templates and the ideas still
 
 | Template | Layers | Description |
 |----------|--------|-------------|
-| `factory-baseline` | iot + ai + edge | Full stack for discrete manufacturing — vibration anomaly detection, alert enrichment, incident escalation |
+| `factory-baseline` | iot + ai | Full stack for discrete manufacturing — vibration anomaly detection (the ai layer's `ei-runner`), alert enrichment, incident escalation |
 | `iot-minimal` | iot | Minimal MING stack for sensor monitoring with no AI layer |
 
 ---

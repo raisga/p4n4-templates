@@ -4,11 +4,11 @@
   "layers": [
     "iot",
     "ai",
-    "edge"
+    "extras"
   ],
   "template": {
     "name": "mqtt-influx-grafana-ollama-go2rtc",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "dashboard": {
     "grafana_path": "/d/p4n4-traffic/traffic",

@@ -1,7 +1,7 @@
 services:
 
   # ====================================================================================
-  # mqtt-influx-grafana-ollama-go2rtc: iot layer (creates p4n4-net; start it before ../ai and ../edge)
+  # mqtt-influx-grafana-ollama-go2rtc: iot layer (creates p4n4-net; start it before ../ai and ../extras)
   #   site edge devices ──HTTPS (ALPR contract 0.1)──► ingest ──┬──► ./data/ingest/ingest.db (SQLite: plates, kept RETENTION_DAYS)
   #                                                             ├──► influxdb ──► grafana   (counts, no plates)
   #                                                             └──► mqtt (<MQTT_TOPIC_ROOT>/<site>/…, no plates)

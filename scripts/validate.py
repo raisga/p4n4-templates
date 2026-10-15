@@ -60,7 +60,7 @@ def layer_dirs(template: Path, layers: list[str]) -> dict[str, Path]:
     Where each layer's stack lives, as p4n4_lib.layout lays out projects: the
     template root for a single layer, <layer>/ for several. Separate
     directories run as separate Compose projects, so `p4n4 up` starts them in
-    dependency order and the ai and edge layers join the p4n4-net network the
+    dependency order and the ai and extras layers join the p4n4-net network the
     iot layer creates.
     """
     if len(layers) == 1:
@@ -221,8 +221,10 @@ def theme_errors(template: Path, rel: object) -> list[str]:
     if schema_errors:
         return errors
 
-    if "logo" in brand and not (theme / brand["logo"]).is_file():
-        errors.append(f"{rel}/brand.json: logo file {brand['logo']} not found")
+    logos = brand.get("logo", {})
+    for key, logo in (logos.items() if isinstance(logos, dict) else [("", logos)]):
+        if not (theme / logo).is_file():
+            errors.append(f"{rel}/brand.json: logo{'.' + key if key else ''} file {logo} not found")
     # Fonts ship with the theme so the dashboard builds offline: at least the
     # regular weight and the license of each family
     fonts = {**DEFAULT_FONTS, **brand.get("fonts", {})}

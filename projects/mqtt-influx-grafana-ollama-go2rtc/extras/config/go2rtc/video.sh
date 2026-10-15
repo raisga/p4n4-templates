@@ -9,7 +9,7 @@
 #   plates   OVERLAY_URL: the ALPR device's annotated view, as MJPEG, with the
 #            vehicles it tracks and the plates it reads.
 #
-# Without its URL, a stream loops edge/clips/<name>.mp4 (road.mp4,
+# Without its URL, a stream loops extras/clips/<name>.mp4 (road.mp4,
 # plates.mp4) at real speed, e.g. recorded footage for a demo; without that,
 # a synthetic test pattern (plates' with a moving vehicle box and a made-up plate).
 #

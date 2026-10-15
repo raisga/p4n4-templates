@@ -34,7 +34,7 @@
       "minItems": 1,
       "uniqueItems": true,
       "items": {
-        "enum": ["iot", "ai", "edge"]
+        "enum": ["iot", "ai", "extras"]
       }
     },
     "tags": {
@@ -65,7 +65,7 @@
           },
           "layer": {
             "description": "Layer whose <layer>/docker-compose.yml defines the service. Required in multi-layer templates, not allowed in single-layer ones.",
-            "enum": ["iot", "ai", "edge"]
+            "enum": ["iot", "ai", "extras"]
           },
           "description": {
             "type": "string"

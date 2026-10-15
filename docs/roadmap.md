@@ -145,6 +145,7 @@ In suggested order. The headings keep the numbering from the original brainstorm
 
 - **Use case:** `ei-runner` classifies windows of accelerometer data on the device; only scores and labels go over MQTT.
 - **Teaches:** the edge-to-cloud split, and why raw data stays on the device.
+- **Layers:** iot + ai, the runner being the ai layer's `ei-runner` profile (p4n4-edge merged into p4n4-ai).
 - **Externals:** an Edge Impulse key, to use your own model.
 - **Open question:** `.eim` models are built per platform and normally downloaded with an account, which conflicts with "offline by default". Options:
   1. **Recommended:** a built-in fallback (a statistical anomaly score) in demo mode, switching to `ei-runner` when a key is set.
@@ -159,6 +160,7 @@ In suggested order. The headings keep the numbering from the original brainstorm
 ### 8 · `mqtt-influx-grafana-go2rtc-edgeimpulse`: occupancy and footfall counting
 
 - **Use case:** camera, on-device person detection, counts only (privacy by design, like the ALPR template), and the Video tab with optionally blurred frames.
+- **Layers:** iot + ai (`ei-runner`) + extras (go2rtc video, as in the ALPR template).
 - **Teaches:** computer vision with counts only.
 - **Externals:** an Edge Impulse key. It has the same model-distribution question as #6; solve it there first.
 

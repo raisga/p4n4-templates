@@ -3,7 +3,7 @@
 # ==============================================================================
 schema_version: 1
 name: mqtt-influx-grafana-ollama-go2rtc
-version: 0.3.0
+version: 0.4.0
 title: ALPR road traffic · counts, plates and video
 description: >-
   Road traffic counting with automatic licence plate recognition (ALPR). An
@@ -18,7 +18,7 @@ description: >-
   questions in the Agent tab with the ingest service's deterministic numbers,
   plate lookups included. A demo road and synthetic video make it work with
   no hardware.
-layers: [iot, ai, edge]
+layers: [iot, ai, extras]
 tags: [alpr, anpr, traffic, computer-vision, video, go2rtc, jetson, influxdb, grafana, mqtt, ollama, llm]
 maintainers:
   - jraleman
@@ -52,11 +52,11 @@ services:
     layer: ai
     description: Local LLM (OLLAMA_MODEL, default gemma4:e2b), reached through the agent
   - name: video
-    layer: edge
+    layer: extras
     description: go2rtc serving the road camera and the device's plate view as MJPEG for the Video tab (demo patterns without them)
     ports: [1984]
   - name: uplink
-    layer: edge
+    layer: extras
     description: Forwards an ALPR device's SQLite to the ingest service, plus a heartbeat every 30 s (compose profile "device")
     profile: device
 

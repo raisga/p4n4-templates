@@ -1,5 +1,5 @@
 """
-Offline checks for edge/uplink/uplink.py: rows in an ALPR device's SQLite
+Offline checks for extras/uplink/uplink.py: rows in an ALPR device's SQLite
 (the table the device's service writes: reads) are forwarded to a real
 ingest service in this process, and must come out as contract 0.1
 documents. No Docker, no device.
@@ -93,7 +93,7 @@ os.environ.update({
     "NODE_NAME": "edge-test",
     "STATE_FILE": str(work / "state/uplink.json"),
 })
-spec = importlib.util.spec_from_file_location("uplink", ROOT / "edge/uplink/uplink.py")
+spec = importlib.util.spec_from_file_location("uplink", ROOT / "extras/uplink/uplink.py")
 uplink = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(uplink)
 
