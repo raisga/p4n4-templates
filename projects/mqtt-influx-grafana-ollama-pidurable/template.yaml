@@ -1,0 +1,72 @@
+# ==============================================================================
+# Template metadata, validated against schema/template.schema.json
+# ==============================================================================
+schema_version: 1
+name: mqtt-influx-grafana-ollama-pidurable
+version: 0.1.0
+title: Durable incident investigator · MQTT → Node-RED → agent on Ollama
+description: >-
+  Pumps publish readings and inference results over MQTT; Node-RED stores them
+  in InfluxDB and raises an alert when a pump's anomaly score crosses a
+  threshold. A durable, read-only agent (Pi Durable on a local Ollama model)
+  investigates each alert with tools that query InfluxDB, and publishes its
+  finding to MQTT and InfluxDB. Every step is checkpointed, so a crash or
+  restart resumes the investigation, and repeated alerts for one fault are one
+  investigation. A simulated pump fails on schedule, so the first
+  investigation runs a few minutes after `p4n4 up`.
+layers: [iot, ai]
+tags: [mqtt, node-red, influxdb, grafana, ollama, llm, agent, durable, anomaly]
+maintainers:
+  - jraleman
+
+services:
+  - name: mqtt
+    layer: iot
+    description: Eclipse Mosquitto MQTT broker, persistent (queues the agent's alerts)
+    ports: [1883]
+  - name: influxdb
+    layer: iot
+    description: InfluxDB 2 time-series database
+    ports: [8086]
+  - name: node-red
+    layer: iot
+    description: Stores readings and inference results; raises alerts/<device>/anomaly over ANOMALY_THRESHOLD
+    ports: [1880]
+  - name: grafana
+    layer: iot
+    description: Anomaly scores, vibration and the agent's investigations
+    ports: [3000]
+  - name: simulator
+    layer: iot
+    description: Demo pumps with a scripted bearing fault (compose profile "demo")
+    profile: demo
+  - name: agent
+    layer: ai
+    description: Durable incident investigator (p4n4-agent); status API on 127.0.0.1
+    ports: [8095]
+  - name: ollama
+    layer: ai
+    description: Local LLM (OLLAMA_MODEL, default gemma4:e2b) on 127.0.0.1
+    ports: [11434]
+
+data:
+  topics:
+    - pattern: sensors/<device>/<sensor>
+      payload: '{"value": 41.3, "unit": "C"} or a bare number; temperature and vibration in the demo'
+    - pattern: inference/<device>/result
+      payload: 'ei-runner''s result: {"device", "timestamp", "label", "confidence", "anomaly_score", "latency_ms", "mode"}'
+    - pattern: alerts/<device>/anomaly
+      payload: '{"device", "anomaly_score", "label", "threshold", "timestamp"}, QoS 1, published by Node-RED'
+    - pattern: agent/investigations/<device>
+      payload: '{"incident", "device", "status", "cause", "confidence", "summary", "error", "alert_at", "started_at", "finished_at"}, QoS 1'
+  influxdb:
+    bucket: raw_telemetry
+    measurement: sensor_data
+    tags: [device, sensor]
+    # also inference (tag device) and agent_investigation (tags device, status)
+  llm:
+    runtime: ollama
+    model: gemma4:e2b
+    tools: [query_influx, recent_inference, report_finding]
+
+smoke_test: tests/smoke.sh

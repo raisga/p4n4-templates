@@ -1,0 +1,118 @@
+services:
+
+  # ====================================================================================
+  # mqtt-influx-grafana-ollama-pidurable: ai layer (joins p4n4-net, which ../iot creates)
+  #   alerts/<device>/anomaly ──► agent ──► ollama (AGENT_MODEL)
+  #                                 │ ──► influxdb (read-only tools)
+  #                                 └──► agent/investigations/<device> + InfluxDB
+  # ====================================================================================
+
+  # ------------------------------------------------------------------------------------
+  # Durable incident investigator (Pi Durable): every step is checkpointed to SQLite in
+  # agent-data, so a crash or restart resumes the investigation where it was
+  # ------------------------------------------------------------------------------------
+  agent:
+    image: ${AGENT_IMAGE:-ghcr.io/raisga/p4n4-agent:0.1.0}
+    container_name: p4n4-agent
+    restart: ${RESTART_POLICY:-unless-stopped}
+    ports:
+      # Status API: /health, and /v1/investigations with AGENT_API_TOKEN
+      - "127.0.0.1:8095:8095"
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # Under 32 characters: the agent refuses to start
+      AGENT_API_TOKEN: ${AGENT_API_TOKEN:-}
+      AGENT_MODEL: ${AGENT_MODEL:-gemma4:e2b}
+      AGENT_CONTEXT_TOKENS: ${AGENT_CONTEXT_TOKENS:-8192}
+      AGENT_MODEL_TIMEOUT_S: ${AGENT_MODEL_TIMEOUT_S:-600}
+      AGENT_SQLITE_SYNC: ${AGENT_SQLITE_SYNC:-FULL}
+      AGENT_ALERT_WINDOW_S: ${AGENT_ALERT_WINDOW_S:-900}
+      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-8}
+      AGENT_INVESTIGATION_TIMEOUT_S: ${AGENT_INVESTIGATION_TIMEOUT_S:-1800}
+      OLLAMA_URL: http://ollama:11434
+      MQTT_HOST: mqtt
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+      # One bucket for everything in this template
+      INFLUXDB_BUCKET_AI_EVENTS: ${INFLUXDB_BUCKET:-raw_telemetry}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - agent-data:/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      # The image has neither curl nor wget
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8095/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Local LLM (Ollama). Localhost only: it has no authentication
+  # ------------------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:0.35.1
+    container_name: p4n4-ollama
+    restart: ${RESTART_POLICY:-unless-stopped}
+    ports:
+      - "127.0.0.1:11434:11434"
+    # entrypoint.sh pulls OLLAMA_MODEL on first start, then runs the server
+    entrypoint: ["/bin/sh", "/p4n4/entrypoint.sh"]
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+      # "-", not ":-": OLLAMA_MODEL= (empty) means pull nothing
+      OLLAMA_MODEL: ${OLLAMA_MODEL-gemma4:e2b}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      # The agent's prompt, tool results and answer must fit: Ollama cuts longer
+      # contexts silently
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-8192}
+      OLLAMA_MAX_LOADED_MODELS: 1
+      OLLAMA_NUM_PARALLEL: 1
+    volumes:
+      - ./config/ollama/entrypoint.sh:/p4n4/entrypoint.sh:ro
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - p4n4-net
+
+# ====================================================================================
+# NETWORKS
+# ====================================================================================
+networks:
+  p4n4-net:
+    external: true
+    name: p4n4-net
+
+# ====================================================================================
+# VOLUMES
+# ====================================================================================
+volumes:
+  ollama-data:
+  agent-data:

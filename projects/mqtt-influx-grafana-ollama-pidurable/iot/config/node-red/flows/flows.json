@@ -1,0 +1,288 @@
+[
+    {
+        "id": "tab-pidurable",
+        "type": "tab",
+        "label": "Pumps and alerts",
+        "disabled": false,
+        "info": "Readings and inference results to InfluxDB, and the anomaly alert the agent investigates."
+    },
+    {
+        "id": "broker-mosquitto",
+        "type": "mqtt-broker",
+        "name": "Mosquitto",
+        "broker": "mqtt",
+        "port": "1883",
+        "clientid": "p4n4-node-red",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "closeTopic": "",
+        "willTopic": "",
+        "birthQos": "0",
+        "closeQos": "0",
+        "willQos": "0",
+        "birthPayload": "",
+        "closePayload": "",
+        "willPayload": "",
+        "birthRetain": "false",
+        "closeRetain": "false",
+        "willRetain": "false",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "c-ingest",
+        "type": "comment",
+        "z": "tab-pidurable",
+        "name": "Ingest: readings and inference results to InfluxDB",
+        "info": "",
+        "x": 230,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "in-sensors",
+        "type": "mqtt in",
+        "z": "tab-pidurable",
+        "name": "sensors/+/+",
+        "topic": "sensors/+/+",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "broker-mosquitto",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 120,
+        "y": 100,
+        "wires": [
+            [
+                "fn-influx"
+            ]
+        ]
+    },
+    {
+        "id": "in-inference",
+        "type": "mqtt in",
+        "z": "tab-pidurable",
+        "name": "inference/+/result",
+        "topic": "inference/+/result",
+        "qos": "1",
+        "datatype": "json",
+        "broker": "broker-mosquitto",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 130,
+        "y": 160,
+        "wires": [
+            [
+                "fn-influx",
+                "fn-alert"
+            ]
+        ]
+    },
+    {
+        "id": "fn-influx",
+        "type": "function",
+        "z": "tab-pidurable",
+        "name": "Format for InfluxDB",
+        "func": "// sensors/<device>/<sensor> and inference/<device>/result to one line of\n// InfluxDB line protocol, as the core p4n4-iot flow stores them:\n//   sensor_data,device=,sensor=  value (and unit)\n//   inference,device=            anomaly_score, confidence, latency_ms, label\n// Payloads: {\"value\": 23.4, \"unit\": \"C\"} or a bare number for readings, the\n// ei-runner result object for inference. \"timestamp\" (ISO 8601 or epoch) is\n// the reading's time; without one, the time it arrived here.\nvar token = env.get(\"INFLUXDB_TOKEN\");\nvar org = env.get(\"INFLUXDB_ORG\");\nvar bucket = env.get(\"INFLUXDB_BUCKET\") || \"raw_telemetry\";\nif (!token || !org) {\n    node.error(\"INFLUXDB_TOKEN and INFLUXDB_ORG env vars must be set\", msg);\n    return null;\n}\n\n// Tags are device and sensor names: anything else would grow cardinality\nvar TAG = /^[a-z0-9_-]{1,64}$/;\nfunction clean(s) { return String(s).replace(/[\\r\\n]+/g, \" \"); }\nfunction escString(s) { return '\"' + clean(s).replace(/[\\\\\"]/g, \"\\\\$&\") + '\"'; }\nfunction num(v) { return typeof v === \"number\" && isFinite(v); }\n\nvar parts = (msg.topic || \"\").split(\"/\");\nvar device = parts[1];\nif (!TAG.test(device || \"\")) {\n    node.warn(\"Ignored \" + msg.topic + \": device id must match \" + TAG);\n    return null;\n}\nvar data = msg.payload;\nif (num(data)) data = { value: data };\nif (!data || typeof data !== \"object\" || Array.isArray(data)) {\n    node.warn(\"Ignored \" + msg.topic + \": expected a JSON object or a number\");\n    return null;\n}\n\nvar line;\nif (parts[0] === \"sensors\") {\n    if (!TAG.test(parts[2] || \"\") || !num(data.value)) {\n        node.warn(\"Ignored \" + msg.topic + \": expected sensors/<device>/<sensor> with a numeric value\");\n        return null;\n    }\n    var fields = [\"value=\" + data.value];\n    if (typeof data.unit === \"string\") fields.push(\"unit=\" + escString(data.unit));\n    line = \"sensor_data,device=\" + device + \",sensor=\" + parts[2] + \" \" + fields.join(\",\");\n} else {\n    var f = [];\n    [\"anomaly_score\", \"confidence\", \"latency_ms\"].forEach(function (k) {\n        if (num(data[k])) f.push(k + \"=\" + data[k]);\n    });\n    if (typeof data.label === \"string\") f.push(\"label=\" + escString(data.label));\n    if (!f.length) {\n        node.warn(\"Ignored \" + msg.topic + \": no inference fields\");\n        return null;\n    }\n    line = \"inference,device=\" + device + \" \" + f.join(\",\");\n}\nvar at = typeof data.timestamp === \"string\" ? Date.parse(data.timestamp) : data.timestamp;\nif (!num(at)) at = Date.now();\nelse if (at < 1e11) at = at * 1000;\n\nmsg.method = \"POST\";\nmsg.url = \"http://influxdb:8086/api/v2/write?org=\" + encodeURIComponent(org) +\n    \"&bucket=\" + encodeURIComponent(bucket) + \"&precision=ms\";\nmsg.headers = { \"Authorization\": \"Token \" + token, \"Content-Type\": \"text/plain; charset=utf-8\" };\nmsg.payload = line + \" \" + Math.round(at);\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 100,
+        "wires": [
+            [
+                "http-write"
+            ]
+        ]
+    },
+    {
+        "id": "http-write",
+        "type": "http request",
+        "z": "tab-pidurable",
+        "name": "Write to InfluxDB",
+        "method": "use",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 610,
+        "y": 100,
+        "wires": [
+            [
+                "sw-write-failed"
+            ]
+        ]
+    },
+    {
+        "id": "sw-write-failed",
+        "type": "switch",
+        "z": "tab-pidurable",
+        "name": "Write failed?",
+        "property": "statusCode",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "gte",
+                "v": "300",
+                "vt": "num"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 1,
+        "x": 810,
+        "y": 100,
+        "wires": [
+            [
+                "debug-write"
+            ]
+        ]
+    },
+    {
+        "id": "debug-write",
+        "type": "debug",
+        "z": "tab-pidurable",
+        "name": "InfluxDB errors",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1000,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "c-alert",
+        "type": "comment",
+        "z": "tab-pidurable",
+        "name": "Alert: anomaly_score above ANOMALY_THRESHOLD",
+        "info": "",
+        "x": 230,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "fn-alert",
+        "type": "function",
+        "z": "tab-pidurable",
+        "name": "Anomaly threshold",
+        "func": "// An inference result above ANOMALY_THRESHOLD raises alerts/<device>/anomaly\n// (QoS 1), which the ai layer's agent investigates. While a device's score\n// stays high, it alerts again only after ALERT_HOLDOFF seconds; the agent\n// merges alerts of one device and window into one investigation anyway.\nvar threshold = Number(env.get(\"ANOMALY_THRESHOLD\") || 0.7);\nvar holdoff = Number(env.get(\"ALERT_HOLDOFF\") || 60) * 1000;\nvar r = msg.payload;\nvar device = (msg.topic || \"\").split(\"/\")[1];\nif (!r || typeof r !== \"object\" || typeof r.anomaly_score !== \"number\") return null;\nif (!/^[a-z0-9_-]{1,64}$/.test(device || \"\")) return null;\nif (r.anomaly_score <= threshold) return null;\n\nvar last = context.get(\"lastAlert\") || {};\nvar now = Date.now();\nif (last[device] && now - last[device] < holdoff) return null;\nlast[device] = now;\ncontext.set(\"lastAlert\", last);\n\nnode.status({ fill: \"red\", shape: \"dot\", text: device + \" \" + r.anomaly_score });\nreturn {\n    topic: \"alerts/\" + device + \"/anomaly\",\n    qos: 1,\n    payload: {\n        device: device,\n        anomaly_score: r.anomaly_score,\n        label: r.label || null,\n        threshold: threshold,\n        timestamp: r.timestamp || new Date(now).toISOString()\n    }\n};\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 280,
+        "wires": [
+            [
+                "out-alerts",
+                "debug-alerts"
+            ]
+        ]
+    },
+    {
+        "id": "out-alerts",
+        "type": "mqtt out",
+        "z": "tab-pidurable",
+        "name": "alerts/<device>/anomaly",
+        "topic": "",
+        "qos": "1",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "broker-mosquitto",
+        "x": 630,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "debug-alerts",
+        "type": "debug",
+        "z": "tab-pidurable",
+        "name": "Alerts",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 600,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "c-results",
+        "type": "comment",
+        "z": "tab-pidurable",
+        "name": "The agent's findings (it stores them in InfluxDB itself)",
+        "info": "",
+        "x": 250,
+        "y": 360,
+        "wires": []
+    },
+    {
+        "id": "in-investigations",
+        "type": "mqtt in",
+        "z": "tab-pidurable",
+        "name": "agent/investigations/+",
+        "topic": "agent/investigations/+",
+        "qos": "1",
+        "datatype": "json",
+        "broker": "broker-mosquitto",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 420,
+        "wires": [
+            [
+                "debug-investigations"
+            ]
+        ]
+    },
+    {
+        "id": "debug-investigations",
+        "type": "debug",
+        "z": "tab-pidurable",
+        "name": "Investigations",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 420,
+        "y": 420,
+        "wires": []
+    }
+]
