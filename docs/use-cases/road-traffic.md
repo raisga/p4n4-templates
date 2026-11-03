@@ -198,15 +198,9 @@ The Assistant tab goes through p4n4-api (`/api/v1/agents/chat`), which forwards 
 template's agent at `P4N4_API_OLLAMA_URL` (default `http://localhost:11434`). The agent
 adds the traffic tools on the way, so the dashboard needs no configuration for them.
 
-The agent can look plates up, and port 11434 has no sign-in of its own. Keep it on the
-loopback interface so only p4n4-api reaches it:
-
-```yaml
-# ai/docker-compose.override.yml
-services:
-  agent:
-    ports: !override ["127.0.0.1:11434:11434"]
-```
+The agent can look plates up, and port 11434 has no sign-in of its own, so the template
+publishes it on the loopback interface (`AGENT_BIND=127.0.0.1` in `ai/.env`) and only
+p4n4-api reaches it. Keep it there.
 
 ## 4. Build the white-label dashboard
 
@@ -340,7 +334,8 @@ These were run against the template on Linux:
   subscriber on `traffic/<site>/heartbeat`, or a scheduled call to `/api/v1/agent/checks`,
   could send them to a phone.
 - **Video is LAN only.** Port 1984 serves every camera, the plate view included, to anyone
-  who can reach it. Keep it on the site's network.
+  who can reach it. Keep it on the site's network. go2rtc serves only the streams and
+  snapshots there; the rest of its API, which could run commands, is off.
 - **Speeds are the device's.** The ingest service trusts `speed_kmh` as posted; the
   device needs calibrating for it to mean anything.
 - **Services doesn't know the template's services.** The dashboard's service catalog is

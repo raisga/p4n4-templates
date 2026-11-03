@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
+import urllib.error
 import urllib.request
 
 URL = "http://localhost:11434"
@@ -81,6 +82,23 @@ check("local_tools.py adds tools", "smoke-01" in devices.get("devices", []), dev
 
 with urllib.request.urlopen(f"{URL}/api/tags", timeout=10) as res:
     models = json.load(res)["models"]
-check("other requests pass through to Ollama", models[0]["name"] == "fake:latest", models)
+check("listing models passes through to Ollama", models[0]["name"] == "fake:latest", models)
+
+
+def status(method: str, path: str) -> int:
+    req = urllib.request.Request(f"{URL}{path}", b"{}" if method == "POST" else None, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as res:
+            return res.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
+codes = {f"{m} {p}": status(m, p) for m, p in [("GET", "/api/version"), ("POST", "/api/generate"), ("POST", "/api/show")]}
+check("what p4n4-api and Ollama's clients use passes through", set(codes.values()) == {200}, codes)
+# Anyone who reaches the port could otherwise fill the disk with models, or delete them
+codes = {f"{m} {p}": status(m, p) for m, p in [("POST", "/api/pull"), ("POST", "/api/create"),
+                                               ("DELETE", "/api/delete"), ("GET", "/api/ps")]}
+check("the rest of Ollama's API is refused", set(codes.values()) == {404}, codes)
 
 sys.exit(1 if failed else 0)

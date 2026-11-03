@@ -35,12 +35,12 @@ sed -e 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=/' \
     -e "s/^MQTT_REMOTE_USER=.*/MQTT_REMOTE_USER=$REMOTE_USER/" \
     -e "s/^MQTT_REMOTE_PASSWORD=.*/MQTT_REMOTE_PASSWORD='$REMOTE_PASSWORD'/" \
     .env.example > .env
-# Short timings, a known ack secret, and Slack pointed at a stand-in
+# Short timings, and Slack pointed at a stand-in. ACK_SECRET stays empty, so
+# n8n generates one.
 ALERT_DELAY=20
 ESCALATE_AFTER=12
 sed -e "s/^ALERT_DELAY=.*/ALERT_DELAY=$ALERT_DELAY/" \
     -e "s/^ESCALATE_AFTER=.*/ESCALATE_AFTER=$ESCALATE_AFTER/" \
-    -e 's/^ACK_SECRET=.*/ACK_SECRET=smoke-secret/' \
     -e 's|^SLACK_WEBHOOK_URL=.*|SLACK_WEBHOOK_URL=http://slack:8080/hook|' \
     ../ai/.env.example > ../ai/.env
 # A unit that never reports, to go offline
@@ -316,6 +316,9 @@ mail_text "to:manager@example.com subject:\"Daily record $DATE\"" \
 echo "Checking a restart"
 compose_ai restart n8n >/dev/null
 eventually n8n_get healthz/readiness && pass "n8n restarts" || fail "n8n did not come back"
+ack_form_opens() { n8n_get "$SILENT_PATH" | grep -q 'Corrective action taken'; }
+eventually ack_form_opens && pass "a link sent before the restart still works" \
+    || fail "a link sent before the restart stopped working (did ACK_SECRET change?)"
 compose_ai logs --no-color n8n | grep -c 'p4n4: importing workflows' | grep -qx 1 \
     && pass "workflows are not imported again on restart" || fail "workflows were re-imported"
 eventually check && pass "the monitor still runs after a restart" || fail "the monitor stopped after a restart"

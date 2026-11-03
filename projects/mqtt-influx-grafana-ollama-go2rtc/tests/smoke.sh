@@ -213,6 +213,11 @@ for src in $(python3 -c "import json; print(' '.join(c['path'].split('src=')[1] 
 done
 bytes="$(compose_extras exec -T video sh -c "timeout 4 wget -qO- 'http://localhost:1984/api/stream.mjpeg?src=road' | wc -c" 2>/dev/null | tr -d ' \r' || true)"
 [ "${bytes:-0}" -gt 100000 ] && ok "the road camera streams MJPEG ($bytes bytes in 4 s)" || fail "road MJPEG stream: ${bytes:-0} bytes"
+# Nothing else: the rest of go2rtc's API, its web page included, can rewrite the config and run commands
+for path in "" api/config api/streams; do
+  compose_extras exec -T video wget -qO /dev/null "http://localhost:1984/$path" >/dev/null 2>&1 \
+    && fail "go2rtc serves /$path" || ok "go2rtc doesn't serve /$path"
+done
 config="$(compose_extras exec -T video cat /tmp/go2rtc.yaml)"
 echo "$config" | grep -q "src=plates&smoke=1'" && echo "$config" | grep -q "ffmpeg:road#video=mjpeg" \
   && ok "CAMERA_URL is quoted, with an MJPEG transcoding fallback" || fail "go2rtc config: $config"

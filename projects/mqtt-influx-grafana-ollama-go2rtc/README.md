@@ -37,7 +37,7 @@ Without the CLI, start the layers in that order: `(cd iot && docker compose up -
 | | |
 |---|---|
 | Grafana | <http://localhost:3000>, `admin` / `adminpassword`. Home: **Traffic** |
-| Video | <http://localhost:1984>: go2rtc's page; streams at `/api/stream.mjpeg?src=road` and `?src=plates` |
+| Video | <http://localhost:1984/api/stream.mjpeg?src=road>, and `?src=plates`; snapshots at `/api/frame.jpeg?src=…`. go2rtc's web page is off |
 | Ingest | <http://localhost:8090/health>; the API needs the tokens in `iot/.env` |
 | Agent | <http://localhost:11434>, Ollama's API (p4n4-dashboard's Agent tab). The model is pulled on first start, about 4.6 GB |
 
@@ -171,13 +171,13 @@ The smoke test posts two seeded days with `simulate.py --once`, then checks:
 - retention: an old read is refused
 - the InfluxDB and MQTT copies, and that neither holds a plate, nor does the ingest log
 - every Grafana panel
-- that both cameras in `.p4n4.json` serve JPEG frames
+- that both cameras in `.p4n4.json` serve JPEG frames, and go2rtc serves nothing but streams, snapshots and `/api`
 
 ## Security
 
 - **Tokens.** The `.env.example` tokens are public; replace them before anything leaves the machine. The read token can look up plates: treat it like the plates. The InfluxDB token is the stack default `p4n4-stack-token`.
 - **Devices outside the network** post through an HTTPS reverse proxy in front of port 8090.
-- **Video.** Port 1984 serves every camera, plate view included, to anyone who can reach it. go2rtc's API refuses `exec:` sources, and its config isn't writable, but it accepts new stream URLs. Keep it on the site's network.
-- **Agent.** Anyone who can reach port 11434 can ask about the road, look plates up and use the Ollama API. Keep it on the loopback interface (`ports: !override ["127.0.0.1:11434:11434"]` under `agent` in `ai/docker-compose.override.yml`) so only p4n4-api, which requires sign-in, reaches it.
+- **Video.** Port 1984 serves every camera, plate view included, to anyone who can reach it. Keep it on the site's network. go2rtc serves only the streams, the snapshots and `/api` there (`allow_paths` in `extras/config/go2rtc/video.sh`), with every capability dropped. The rest of its API, its web page included, could rewrite its config and restart it, and a stream in the config can run any command. Keep it that way if you edit `video.sh`.
+- **Agent.** Anyone who can reach port 11434 can ask about the road and look plates up. It's published on the loopback interface (`AGENT_BIND=127.0.0.1` in `ai/.env`), so only p4n4-api, which requires sign-in, reaches it. Keep it there. It passes on only the part of Ollama's API that chats and lists models, so nobody can pull or delete models through it.
 - **MQTT.** Mosquitto allows anonymous clients. The topics carry no plates; with `MQTT_PLATES=true` the messages do, so set up the broker's authentication first.
 - **HTML panels.** `GF_PANELS_DISABLE_SANITIZE_HTML=true` lets the header render. Keep Grafana logins to Viewers.

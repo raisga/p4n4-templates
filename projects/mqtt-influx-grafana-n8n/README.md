@@ -166,7 +166,7 @@ Edit in n8n and publish. The template's workflows are imported only on the first
 | `N8N_ENCRYPTION_KEY` | `change-me-…` | Encrypts stored credentials; set it once, before the first start |
 | `N8N_REIMPORT_WORKFLOWS` | `false` | `true` replaces the workflows with the template's on the next start |
 | `ALERT_DELAY` / `ESCALATE_AFTER` / `OFFLINE_AFTER` | `900` / `1800` / `600` | Rule timings, in seconds |
-| `ACK_SECRET` | `change-me-ack-secret` | Signs acknowledge links (`openssl rand -hex 32`) |
+| `ACK_SECRET` | *(empty: generated)* | Signs acknowledge links. Empty: generated on n8n's first start and kept in its volume; your own needs 32+ characters (`openssl rand -hex 32`) |
 | `EMAIL_FROM` | `coldchain@example.com` | Sender address |
 | `ALERT_EMAIL_TO` / `ESCALATION_EMAIL_TO` / `REPORT_EMAIL_TO` | `on-duty@…` / `manager@…` / `manager@…` | Comma-separated recipients |
 | `SMTP_HOST` / `SMTP_PORT` | `mailpit` / `1025` | Mail server |
@@ -198,7 +198,7 @@ iot/config/grafana/provisioning/dashboards/    Cold chain dashboard (uid p4n4-co
 iot/scripts/simulate.sh                        demo cold rooms
 ai/config/coldchain/units.json                 units and their limits
 ai/config/n8n/workflows/                       monitor, acknowledge, daily report
-ai/config/n8n/entrypoint.sh                    owner, SMTP credential, first-start import
+ai/config/n8n/entrypoint.sh                    owner, SMTP credential, ack secret, first-start import
 ai/data/reports/                               daily records (gitignored)
 theme/                                         p4n4-dashboard white-label theme (sample: polar)
 tests/smoke.sh                                 end-to-end test
@@ -220,7 +220,7 @@ The Grafana tab opens the Cold chain dashboard. Set `GRAFANA_ANONYMOUS=true` and
 
 ## Security
 
-- The acknowledge and report webhooks need no login. Ack links are signed, so change `ACK_SECRET`. The report webhook can only email the configured recipients, but don't expose port 5678 to the internet. Put n8n behind HTTPS (a reverse proxy) when phones reach it over untrusted networks.
+- The acknowledge and report webhooks need no login. Ack links are signed with `ACK_SECRET`; n8n refuses to start with the old example value or a key under 32 characters. The report webhook can only email the configured recipients, but don't expose port 5678 to the internet. Put n8n behind HTTPS (a reverse proxy) when phones reach it over untrusted networks.
 - Change `N8N_OWNER_PASSWORD`, `N8N_ENCRYPTION_KEY`, every password and `INFLUXDB_TOKEN` before exposing any port.
 - Mailpit accepts and shows every email without a login. Keep it to demos and trusted networks.
 - Mosquitto allows anonymous clients, so anyone on the network can publish readings. See the *MQTT authentication* section of the [p4n4-iot README](https://github.com/raisga/p4n4-iot#readme).
@@ -239,6 +239,6 @@ The test runs with short timings (`ALERT_DELAY=20`, `ESCALATE_AFTER=12`) and a s
 - forged links and empty forms are refused;
 - every event and the corrective action are in InfluxDB;
 - the daily record is saved and emailed with its CSV;
-- a restart doesn't re-import the workflows;
+- a restart doesn't re-import the workflows, and links sent before it still work;
 - the iot layer's archives and bridge;
 - every Grafana panel.

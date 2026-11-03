@@ -99,7 +99,7 @@ fields       value, unit, ...
 
 ### Agent
 
-`agent` serves the Ollama API on port 11434, under Ollama's container name `p4n4-ollama`, so p4n4-api (`P4N4_API_OLLAMA_URL`, default `http://localhost:11434`) and with it p4n4-dashboard use it with no configuration. On `POST /api/chat` it adds a system prompt and three tools, runs the tool calls the model makes against InfluxDB, and streams the answer back. Every other request (`/api/tags`, `/api/pull`, …) goes to Ollama unchanged.
+`agent` serves the Ollama API on port 11434, under Ollama's container name `p4n4-ollama`, so p4n4-api (`P4N4_API_OLLAMA_URL`, default `http://localhost:11434`) and with it p4n4-dashboard use it with no configuration. On `POST /api/chat` it adds a system prompt and three tools, runs the tool calls the model makes against InfluxDB, and streams the answer back. `GET /api/tags`, `/api/version` and `/`, and `POST /api/generate` and `/api/show`, go to Ollama unchanged. The rest of Ollama's API, which pulls and deletes models, gets a 404: manage models with `docker compose exec ollama ollama …` in `ai/`.
 
 | Tool | Returns |
 |---|---|
@@ -145,6 +145,7 @@ Restart the agent to load changes (`docker compose restart agent` in `ai/`); its
 | `OLLAMA_MODEL` | `gemma4:e2b` | Model pulled on first start and offered in the Agent tab; any [Ollama library](https://ollama.com/library) tag, e.g. `gemma4:e4b` on a bigger machine. A model without tool support still chats, without data access. Empty pulls nothing |
 | `OLLAMA_KEEP_ALIVE` | `30m` | How long the model stays in memory after the last chat (`0`: unload right away, `-1`: never) |
 | `AGENT_THINK` | `false` | Whether thinking models think before answering. See below. Empty: the model's default |
+| `AGENT_BIND` | `127.0.0.1` | Address the agent's port 11434 is published on. It has no sign-in: see [Security](#security) |
 | `INFLUXDB_TOKEN` / `INFLUXDB_ORG` / `INFLUXDB_BUCKET` | as in `iot/.env.example` | What the tools query. Must match `iot/.env`. The agent only reads, so a read-only token for the bucket is enough |
 
 The model is pulled only when it isn't in the `ollama-data` volume yet, so later starts work offline. A failed pull is logged and Ollama keeps running; restart the layer to retry. Changing `OLLAMA_MODEL` pulls the new model on the next start; remove the old one with `docker compose exec ollama ollama rm <model>`.
@@ -190,7 +191,7 @@ These defaults are for a trusted local network:
 
 - Mosquitto allows anonymous clients. For authentication, follow the *MQTT authentication* section of the [p4n4-iot README](https://github.com/raisga/p4n4-iot#readme) and mount the files via `iot/docker-compose.override.yml`.
 - Change every password and `INFLUXDB_TOKEN` in `iot/.env` (and `ai/.env`) before exposing any port.
-- The agent has no authentication: anyone who can reach port 11434 can ask about every reading, and can pull and delete models through the Ollama API it passes on. p4n4-api, on the same host, is its only client the dashboard needs: keep the port on the loopback interface with `ports: !override ["127.0.0.1:11434:11434"]` under `agent` in `ai/docker-compose.override.yml`. Ollama itself publishes no port.
+- The agent has no authentication: anyone who can reach port 11434 can ask about every reading. So it's published on the loopback interface (`AGENT_BIND=127.0.0.1`): p4n4-api, its only client the dashboard needs, reaches it from the same host or over `p4n4-net`. Keep it there. It passes on only the part of Ollama's API that chats and lists models, so nobody can pull or delete models through it. Ollama itself publishes no port.
 - Give the agent a read-only InfluxDB token rather than the admin token: `docker compose exec influxdb influx auth create --org <org> --read-bucket <bucket id>` in `iot/`, then set it as `INFLUXDB_TOKEN` in `ai/.env`.
 - `GRAFANA_ANONYMOUS=true` makes every dashboard readable by anyone who can reach port 3000, and `GRAFANA_ALLOW_EMBEDDING=true` lets any site frame Grafana (clickjacking risk).
 
@@ -203,4 +204,4 @@ These defaults are for a trusted local network:
 KEEP=1 ./tests/smoke.sh   # leave it running for inspection
 ```
 
-The test runs each layer as its own Compose project, iot first, as `p4n4 up` does, and drops the fixed container names, host ports and `p4n4-net` network so it runs alongside any other stack. It checks InfluxDB, both archives and every dashboard panel query. In the ai layer, the agent talks to `tests/fake_ollama.py`, a scripted model that makes whichever tool call the test asks for and echoes the result, so `tests/check_agent.py` checks each tool's InfluxDB results, argument validation, a `local_tools.py` tool, streaming and pass-through without a model download. Ollama itself starts without a model.
+The test runs each layer as its own Compose project, iot first, as `p4n4 up` does, and drops the fixed container names, host ports and `p4n4-net` network so it runs alongside any other stack. It checks InfluxDB, both archives and every dashboard panel query. In the ai layer, the agent talks to `tests/fake_ollama.py`, a scripted model that makes whichever tool call the test asks for and echoes the result, so `tests/check_agent.py` checks each tool's InfluxDB results, argument validation, a `local_tools.py` tool, streaming, and which requests reach Ollama, without a model download. Ollama itself starts without a model.

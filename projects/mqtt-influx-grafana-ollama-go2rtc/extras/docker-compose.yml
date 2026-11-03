@@ -17,12 +17,14 @@ services:
     container_name: p4n4-video
     restart: ${RESTART_POLICY:-unless-stopped}
     ports:
-      - "1984:1984"   # MJPEG streams, snapshots and go2rtc's web UI: site network only
+      - "1984:1984"   # MJPEG streams and snapshots, which the Video tab loads from here: site network only
     # video.sh writes go2rtc's config from CAMERA_URL / OVERLAY_URL, then runs it
     entrypoint: ["/bin/sh", "/p4n4/video.sh"]
     read_only: true
     tmpfs:
       - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     environment:
       CAMERA_URL: ${CAMERA_URL:-}
       OVERLAY_URL: ${OVERLAY_URL:-}

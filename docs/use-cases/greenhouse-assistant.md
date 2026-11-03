@@ -321,10 +321,10 @@ These were run on Linux:
   thinks.
 - **Answers are only as good as the tools.** The model sees `sensor_data` and nothing
   else. A question no tool answers gets a guess or a question back: add a tool for it.
-- **Port 11434 has no authentication.** Anyone who reaches it can ask about every reading,
-  and pull or delete models through the Ollama API the agent passes on. p4n4-api is the
-  only client the dashboard needs, so keep the port on the loopback interface (the
-  template [README](../../projects/mqtt-influx-grafana-ollama/README.md#security) shows how).
+- **Port 11434 has no authentication.** Anyone who reaches it can ask about every reading.
+  p4n4-api is the only client the dashboard needs, so the port is on the loopback interface
+  (`AGENT_BIND=127.0.0.1` in `ai/.env`): keep it there. The agent passes on only the part of
+  Ollama's API that chats and lists models, so nobody can pull or delete models through it.
 - **Targets live in code.** `TARGETS` in `local_tools.py` is per project, and changing it
   means restarting the agent. Grafana thresholds and the tool's targets don't share a
   source, so keep them in step by hand.

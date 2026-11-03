@@ -14,8 +14,10 @@
 # a synthetic test pattern (plates' with a moving vehicle box and a made-up plate).
 #
 # Every stream is served at http://<host>:1984/api/stream.mjpeg?src=<name>,
-# and as a snapshot at /api/frame.jpeg?src=<name>. The config lives in /tmp,
-# so the API can't rewrite it; go2rtc refuses exec: sources from its API.
+# and as a snapshot at /api/frame.jpeg?src=<name>. go2rtc serves those and
+# /api (the healthcheck), nothing else: the rest of its API, its web page
+# included, can rewrite this config and restart go2rtc, and a stream in the
+# config can run any command.
 # ==============================================================================
 set -eu
 
@@ -58,6 +60,8 @@ loop() { echo "exec:ffmpeg -hide_banner -loglevel error -re -stream_loop -1 -i $
   fi
   echo "api:"
   echo "  listen: ':1984'"
+  # What the Video tab and the healthcheck use; see the top of this file
+  echo "  allow_paths: [/api, /api/stream.mjpeg, /api/frame.jpeg]"
   echo "rtsp:"
   echo "  listen: ':8554'"
 } > "$CONFIG"

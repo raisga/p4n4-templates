@@ -4,7 +4,9 @@ Telemetry agent: an Ollama-compatible endpoint whose model can query InfluxDB.
 p4n4-dashboard's Agent tab speaks the Ollama API, and so does this server.
 POST /api/chat gets a system prompt and the InfluxDB tools below; the server
 runs the tool calls the model makes and streams its answer back in Ollama's
-format. Every other request goes to Ollama unchanged.
+format. The few other requests p4n4-api and Ollama's clients make (FORWARD)
+go to Ollama unchanged. The rest of Ollama's API, which pulls and deletes
+models, gets a 404.
 
 While it waits on a tool, the stream also says so, so a chat can show the
 user what is being looked up: a chunk with no text and a `step`,
@@ -517,6 +519,15 @@ def agent_chat(body: dict, emit) -> dict:
 # HTTP
 # ------------------------------------------------------------------------------
 
+# What goes to Ollama unchanged, besides POST /api/chat: what p4n4-api and
+# Ollama's clients use to check the server, list models and generate. The rest
+# of Ollama's API pulls, pushes, copies and deletes models
+FORWARD = {
+    "GET": {"/", "/api/version", "/api/tags"},
+    "HEAD": {"/", "/api/version", "/api/tags"},
+    "POST": {"/api/generate", "/api/show"},
+}
+
 
 class Handler(BaseHTTPRequestHandler):
     # HTTP/1.0: each response ends by closing the connection, so streamed
@@ -539,6 +550,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _forward(self) -> None:
         """Pass the request to Ollama and stream its response back."""
+        path = self.path.split("?")[0]
+        if path not in FORWARD.get(self.command, ()):
+            return self._json(404, {"error": f"{self.command} {path} is not available through the agent"})
         req = urllib.request.Request(
             OLLAMA_URL + self.path,
             data=self._body() or None,
@@ -600,7 +614,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(payload)
+        if self.command != "HEAD":
+            self.wfile.write(payload)
 
 
 def main() -> None:

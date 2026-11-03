@@ -5,7 +5,9 @@
 #   1. Owner account from N8N_OWNER_EMAIL / N8N_OWNER_PASSWORD (hashed here;
 #      n8n applies it on every start, so changing .env changes the login)
 #   2. The SMTP credential the workflows send with, from SMTP_* (every start)
-#   3. The workflows in /p4n4/workflows, imported and published on first
+#   3. ACK_SECRET, which signs the acknowledge links: when ai/.env leaves it
+#      empty, one is generated on first start and kept in n8n's volume
+#   4. The workflows in /p4n4/workflows, imported and published on first
 #      start only, so edits made in the editor survive restarts. Set
 #      N8N_REIMPORT_WORKFLOWS=true to overwrite them with the template's.
 # ==============================================================================
@@ -32,6 +34,17 @@ node -e '
 ' > /tmp/credentials.json
 n8n import:credentials --input=/tmp/credentials.json
 rm -f /tmp/credentials.json
+
+# Whoever knows the key can acknowledge any excursion, so the public example
+# value and short keys are refused
+ACK_SECRET_FILE=/home/node/.n8n/.p4n4-ack-secret
+[ "${ACK_SECRET:-}" != change-me-ack-secret ] || { echo "p4n4: ACK_SECRET is the example value; set your own in ai/.env or leave it empty" >&2; exit 1; }
+if [ -z "${ACK_SECRET:-}" ]; then
+    [ -s "$ACK_SECRET_FILE" ] || node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))' > "$ACK_SECRET_FILE"
+    ACK_SECRET="$(cat "$ACK_SECRET_FILE")"
+fi
+[ "${#ACK_SECRET}" -ge 32 ] || { echo "p4n4: ACK_SECRET must be at least 32 characters (openssl rand -hex 32)" >&2; exit 1; }
+export ACK_SECRET
 
 if [ ! -f "$MARKER" ] || [ "${N8N_REIMPORT_WORKFLOWS:-false}" = true ]; then
     echo "p4n4: importing workflows"

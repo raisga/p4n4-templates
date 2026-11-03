@@ -17,7 +17,7 @@ services:
     container_name: p4n4-ollama
     restart: ${RESTART_POLICY:-unless-stopped}
     ports:
-      - "11434:11434"
+      - "${AGENT_BIND:-127.0.0.1}:11434:11434"   # no sign-in: this machine only. p4n4-api's container uses p4n4-net
     command: ["python", "-u", "/p4n4/agent.py"]
     user: "65534:65534"
     read_only: true
