@@ -16,9 +16,16 @@ services:
     container_name: p4n4-mqtt
     restart: ${RESTART_POLICY:-unless-stopped}
     ports:
-      - "1883:1883"   # MQTT TCP
+      - "1883:1884"   # Devices; 1883 stays Docker-only
+    entrypoint: ["/bin/sh", "/p4n4/auth.sh", "/docker-entrypoint.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/p4n4/mosquitto.conf"]
+    environment:
+      MQTT_USER: ${MQTT_USER:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      MQTT_READONLY_USER: ${MQTT_READONLY_USER:-}
+      MQTT_READONLY_PASSWORD: ${MQTT_READONLY_PASSWORD:-}
     volumes:
-      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./config/mosquitto:/p4n4:ro
       - mosquitto-data:/mosquitto/data
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/uptime' -C 1 -W 3"]

@@ -104,7 +104,7 @@ actuators/<zone>/<actuator>/mode       auto | on | off   (retained)
 | Mode | Effect |
 |---|---|
 | `auto` (default) | The rules decide |
-| `on` / `off` | Forced; readings and the watchdog are ignored until the mode is `auto` again |
+| `on` / `off` | Forced; readings are ignored, but valve maximum runtime and lockout still apply |
 
 Publish them retained, so they survive a Node-RED restart. An empty retained message clears the override (`mosquitto_pub -r -n -t …/mode`). Unknown modes are logged and ignored.
 
@@ -142,12 +142,12 @@ actuators/+/+/set ──► Remember last command   (picks up retained commands 
 |---|---|---|
 | Fan | On at `TEMP_HIGH`; off once it has fallen `TEMP_HYSTERESIS` below. In between it keeps its state, so it doesn't chatter around one threshold | `TEMP_HIGH=28`, `TEMP_HYSTERESIS=2` |
 | Valve | Opens at `SOIL_LOW`, closes at `SOIL_HIGH` | `SOIL_LOW=30`, `SOIL_HIGH=45` |
-| Valve watchdog | Closes a valve the rules opened if its zone sent no `soil_moisture` for `STALE_AFTER` s (a dead sensor shouldn't water blind), or if it has been open for `VALVE_MAX_RUN` s (stuck sensor, burst pipe). After a max-run cutoff the valve stays closed for `VALVE_LOCKOUT` s, whatever the readings say | `STALE_AFTER=120`, `VALVE_MAX_RUN=900`, `VALVE_LOCKOUT=1800` |
-| Manual override | `mode` `on` / `off` beats the rules and the watchdog | none |
+| Valve watchdog | Closes an automatic valve after `STALE_AFTER` s without soil readings. Every valve, including forced-on ones, closes at `VALVE_MAX_RUN` and stays closed for `VALVE_LOCKOUT` s. Checked every 5 s; mode changes do not reset continuous-on time | `STALE_AFTER=120`, `VALVE_MAX_RUN=900`, `VALVE_LOCKOUT=1800` |
+| Manual override | `mode` `on` / `off` beats the rules, never the valve maximum-runtime cutoff or lockout | none |
 
 Change a threshold in `.env`, then `docker compose up -d node-red`. The Temperature and Soil moisture panels draw the default thresholds as dashed lines, so update them in the dashboard if you change these.
 
-State lives in Node-RED's memory. After a restart, *Remember last command* reloads the retained commands. The watchdog closes any open valve until the next soil reading arrives, which fails safe.
+State lives in Node-RED's memory. After a restart, *Remember last command* reloads the retained commands, including `onSince` for an open actuator (older commands use `at`). Automatic valves close until a soil reading arrives; forced-on valves keep their maximum-runtime cutoff.
 
 ### Changing the flow
 
@@ -265,7 +265,7 @@ The Grafana tab opens the Greenhouse dashboard in kiosk mode. Set `GRAFANA_ANONY
 
 These defaults are for a trusted local network, and here they control equipment:
 
-- Mosquitto allows anonymous clients, so **anyone on the network can switch the actuators** by publishing to `actuators/#`. Before connecting real equipment, turn on authentication and an ACL that lets only Node-RED publish `…/set` and only operators publish `…/mode`. See the *MQTT authentication* section of the [p4n4-iot README](https://github.com/raisga/p4n4-iot#readme), and mount the files via `docker-compose.override.yml`.
+- Mosquitto allows anonymous demo clients, so **anyone on the network can switch the actuators** until `MQTT_USER` and `MQTT_PASSWORD` are set in `.env`. Optional `MQTT_READONLY_USER` / `MQTT_READONLY_PASSWORD` provide read-only access. Before connecting equipment, also add per-user rules in `config/mosquitto/acl` for device readings and operator modes. Keep the full-access `MQTT_USER` account private. Container clients keep the private anonymous listener. See [MQTT device logins](../../README.md#mqtt-device-logins).
 - The Node-RED editor can change every rule. Set a strong `NODE_RED_PASSWORD`, and don't expose port 1880 beyond the people who maintain the rules.
 - Change every password and `INFLUXDB_TOKEN` in `.env` before exposing any port.
 - Keep hardware interlocks (thermal cut-outs, float switches, valve timers) in place. Software rules are a convenience, not a safety system.

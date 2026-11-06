@@ -188,7 +188,7 @@ The Agent tab talks to the Letta agent, and the Grafana tab opens Equipment heal
 - Change `LETTA_SERVER_PASSWORD`. Anyone with it can read and change the agent, including its memory and its tool secrets (the InfluxDB token and the Letta password). Ollama and Letta are published on `127.0.0.1` only. Let people reach the agent through p4n4-api, which signs users in and keeps the password on the server.
 - The tools can write to InfluxDB with `INFLUXDB_TOKEN`. A token limited to the bucket is safer: `docker compose exec influxdb influx auth create --read-bucket <id> --write-bucket <id> --org <org>` in `iot/`.
 - The agent's memory holds what people tell it, names included. It lives in the `letta-pgdata` volume. Back it up like any other maintenance record.
-- Mosquitto allows anonymous clients; see the *MQTT authentication* section of the [p4n4-iot README](https://github.com/raisga/p4n4-iot#readme).
+- Mosquitto allows anonymous demo clients until `MQTT_USER` and `MQTT_PASSWORD` are set in `iot/.env`. Optional `MQTT_READONLY_USER` / `MQTT_READONLY_PASSWORD` provide read-only access. Recreate `mqtt` after changes; container clients keep the private anonymous listener. See [MQTT device logins](../../README.md#mqtt-device-logins).
 - The assistant advises; it doesn't replace a vibration analyst or the manufacturer's limits.
 
 ---

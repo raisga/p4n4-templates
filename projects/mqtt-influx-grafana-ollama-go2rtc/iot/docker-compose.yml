@@ -36,6 +36,8 @@ services:
       INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
       MQTT_HOST: mqtt
+      MQTT_USER: ${MQTT_USER:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
       MQTT_TOPIC_ROOT: ${MQTT_TOPIC_ROOT:-traffic}
       MQTT_PLATES: ${MQTT_PLATES:-false}
       PYTHONDONTWRITEBYTECODE: "1"
@@ -64,10 +66,17 @@ services:
     container_name: p4n4-mqtt
     restart: ${RESTART_POLICY:-unless-stopped}
     ports:
-      - "1883:1883"   # MQTT TCP
+      - "1883:1884"   # Devices; 1883 stays Docker-only
       - "9001:9001"   # MQTT WebSocket
+    entrypoint: ["/bin/sh", "/p4n4/auth.sh", "/docker-entrypoint.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/p4n4/mosquitto.conf"]
+    environment:
+      MQTT_USER: ${MQTT_USER:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      MQTT_READONLY_USER: ${MQTT_READONLY_USER:-}
+      MQTT_READONLY_PASSWORD: ${MQTT_READONLY_PASSWORD:-}
     volumes:
-      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./config/mosquitto:/p4n4:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
     healthcheck:

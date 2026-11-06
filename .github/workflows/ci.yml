@@ -16,6 +16,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Validate
         run: uv run scripts/validate.py
+      - name: Test valve controls
+        run: node --test projects/mqtt-nodered-influx-grafana/tests/control.test.cjs
       - id: list
         name: List templates
         run: echo "templates=$(uv run scripts/validate.py --list)" >> "$GITHUB_OUTPUT"

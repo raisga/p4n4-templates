@@ -223,7 +223,7 @@ The Grafana tab opens the Cold chain dashboard. Set `GRAFANA_ANONYMOUS=true` and
 - The acknowledge and report webhooks need no login. Ack links are signed with `ACK_SECRET`; n8n refuses to start with the old example value or a key under 32 characters. The report webhook can only email the configured recipients, but don't expose port 5678 to the internet. Put n8n behind HTTPS (a reverse proxy) when phones reach it over untrusted networks.
 - Change `N8N_OWNER_PASSWORD`, `N8N_ENCRYPTION_KEY`, every password and `INFLUXDB_TOKEN` before exposing any port.
 - Mailpit accepts and shows every email without a login. Keep it to demos and trusted networks.
-- Mosquitto allows anonymous clients, so anyone on the network can publish readings. See the *MQTT authentication* section of the [p4n4-iot README](https://github.com/raisga/p4n4-iot#readme).
+- Mosquitto allows anonymous demo clients until `MQTT_USER` and `MQTT_PASSWORD` are set in `iot/.env`. Optional `MQTT_READONLY_USER` / `MQTT_READONLY_PASSWORD` provide read-only access. Recreate `mqtt` after changes; n8n and other container clients keep the private anonymous listener. See [MQTT device logins](../../README.md#mqtt-device-logins).
 - This template helps you keep records. It is not a certified monitoring system: check your regulator's requirements (HACCP plan, sensor calibration, record retention) for your site.
 
 ---

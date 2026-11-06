@@ -106,6 +106,26 @@ docker compose up -d
 
 ---
 
+### MQTT device logins
+
+The seven projects support opt-in device authentication in the IoT `.env`
+(the project-root `.env` for single-layer projects). Set `MQTT_USER` and
+`MQTT_PASSWORD`, generating the password with `openssl rand -hex 32`, then
+recreate `mqtt`. Devices use the host's port 1883; WebSocket clients use 9001
+where published. With an empty password, anonymous demo access is unchanged.
+The TCP mapping is `1883:1884`: custom overrides must publish container port
+1884, not the anonymous container port 1883.
+
+For read-only tools, also set `MQTT_READONLY_USER` and `MQTT_READONLY_PASSWORD`
+with a different username. Optional `config/mosquitto/passwd` and `acl` files
+add accounts and per-user topic rules; `MQTT_USER` always has full access.
+Global write patterns cannot be combined with the read-only account.
+
+Container services (Telegraf, Node-RED, n8n, the ingest and the agents) keep using
+the anonymous, unpublished listener on port 1883. Only trusted containers should
+join `p4n4-net`. Each template carries its own `auth.sh` so a copied project
+remains self-contained. MQTT packets are limited to 4 MiB.
+
 ## Template Structure
 
 Each template is a directory under `projects/`, named after the template:

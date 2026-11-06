@@ -189,7 +189,7 @@ The [greenhouse assistant use case](../../docs/use-cases/greenhouse-assistant.md
 
 These defaults are for a trusted local network:
 
-- Mosquitto allows anonymous clients. For authentication, follow the *MQTT authentication* section of the [p4n4-iot README](https://github.com/raisga/p4n4-iot#readme) and mount the files via `iot/docker-compose.override.yml`.
+- Mosquitto allows anonymous demo clients until `MQTT_USER` and `MQTT_PASSWORD` are set in `iot/.env`. Optional `MQTT_READONLY_USER` / `MQTT_READONLY_PASSWORD` provide read-only access. Recreate `mqtt` after changes; container clients keep the private anonymous listener. See [MQTT device logins](../../README.md#mqtt-device-logins).
 - Change every password and `INFLUXDB_TOKEN` in `iot/.env` (and `ai/.env`) before exposing any port.
 - The agent has no authentication: anyone who can reach port 11434 can ask about every reading. So it's published on the loopback interface (`AGENT_BIND=127.0.0.1`): p4n4-api, its only client the dashboard needs, reaches it from the same host or over `p4n4-net`. Keep it there. It passes on only the part of Ollama's API that chats and lists models, so nobody can pull or delete models through it. Ollama itself publishes no port.
 - Give the agent a read-only InfluxDB token rather than the admin token: `docker compose exec influxdb influx auth create --org <org> --read-bucket <bucket id>` in `iot/`, then set it as `INFLUXDB_TOKEN` in `ai/.env`.

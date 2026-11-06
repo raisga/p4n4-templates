@@ -177,6 +177,12 @@ TRIES=15 eventually feed_dry && pass "watchdog closes a valve open for VALVE_MAX
 pub -t sensors/smoke-03/soil_moisture -m '10'
 still_command smoke-03/valve off "a locked-out valve stays closed while the soil reads dry"
 
+pub -r -t actuators/smoke-05/valve/mode -m on
+expect_command smoke-05/valve on "an operator can force a valve on"
+expect_command smoke-05/valve off "maximum runtime also stops a forced-on valve" "locked out"
+pub -r -t actuators/smoke-05/valve/mode -m on
+still_command smoke-05/valve off "manual on cannot bypass the valve lockout"
+
 echo "Publishing readings for the dashboard"
 pub -t sensors/smoke-01/humidity -m '61'
 pub -t sensors/smoke-01/soil_moisture -m '{"value": 38, "unit": "%"}'

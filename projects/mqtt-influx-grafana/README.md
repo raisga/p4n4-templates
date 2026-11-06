@@ -221,7 +221,7 @@ The [greenhouse use case](../../docs/use-cases/greenhouse-telemetry.md) walks th
 
 These defaults are for a trusted local network:
 
-- Mosquitto allows anonymous clients. For authentication, follow the *MQTT authentication* section of the [p4n4-iot README](https://github.com/raisga/p4n4-iot#readme) and mount the files via `docker-compose.override.yml`.
+- Mosquitto allows anonymous demo clients until `MQTT_USER` and `MQTT_PASSWORD` are set in `.env`. Optional `MQTT_READONLY_USER` / `MQTT_READONLY_PASSWORD` provide read-only access. Recreate `mqtt` after changes; container clients keep the private anonymous listener. See [MQTT device logins](../../README.md#mqtt-device-logins).
 - Change every password and `INFLUXDB_TOKEN` in `.env` before exposing any port.
 - Use `MQTT_REMOTE_TLS=true` when the external broker is reachable over the internet: without
   TLS, `MQTT_REMOTE_PASSWORD` is sent in plain text.

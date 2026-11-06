@@ -138,7 +138,7 @@ The full reference, including the System 1 and Letta tools of the p4n4-ai stack'
 These defaults are for a trusted local network:
 
 - Change every password, `INFLUXDB_TOKEN` and `AGENT_API_TOKEN` in `iot/.env` and `ai/.env` before exposing any port. The agent refuses to start with a token under 32 characters.
-- Mosquitto allows anonymous clients, and anyone who can publish to `alerts/<device>/anomaly` can start an investigation (they only cost model time: the agent's tools read).
+- Mosquitto allows anonymous demo clients until `MQTT_USER` and `MQTT_PASSWORD` are set in `iot/.env`. Optional `MQTT_READONLY_USER` / `MQTT_READONLY_PASSWORD` provide read-only access. Recreate `mqtt` after changes; container clients keep the private anonymous listener. Anyone with publishing access to `alerts/<device>/anomaly` can still start an investigation. See [MQTT device logins](../../README.md#mqtt-device-logins).
 - Ollama (11434) and the agent's status API (8095) are published on `127.0.0.1` only. Ollama has no authentication.
 - Give the agent a read-only InfluxDB token where you can; it needs write access only to record `agent_investigation`.
 

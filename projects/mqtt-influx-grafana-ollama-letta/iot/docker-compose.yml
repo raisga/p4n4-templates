@@ -15,13 +15,17 @@ services:
     container_name: p4n4-mqtt
     restart: ${RESTART_POLICY:-unless-stopped}
     ports:
-      - "1883:1883"   # MQTT TCP
+      - "1883:1884"   # Devices; 1883 stays Docker-only
       - "9001:9001"   # MQTT WebSocket
     # bridge.sh writes the external-broker bridge config from MQTT_REMOTE_*
     # (a no-op when MQTT_REMOTE_HOST is empty), then runs the image entrypoint
-    entrypoint: ["/bin/sh", "/p4n4/bridge.sh"]
-    command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    entrypoint: ["/bin/sh", "/p4n4/auth.sh", "/bin/sh", "/p4n4/bridge.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/p4n4/mosquitto.conf"]
     environment:
+      MQTT_USER: ${MQTT_USER:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      MQTT_READONLY_USER: ${MQTT_READONLY_USER:-}
+      MQTT_READONLY_PASSWORD: ${MQTT_READONLY_PASSWORD:-}
       MQTT_REMOTE_HOST: ${MQTT_REMOTE_HOST:-}
       MQTT_REMOTE_PORT: ${MQTT_REMOTE_PORT:-}
       MQTT_REMOTE_USER: ${MQTT_REMOTE_USER:-}
@@ -35,8 +39,7 @@ services:
       MQTT_REMOTE_CERT_FILE: ${MQTT_REMOTE_CERT_FILE:-}
       MQTT_REMOTE_KEY_FILE: ${MQTT_REMOTE_KEY_FILE:-}
     volumes:
-      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./config/mosquitto/bridge.sh:/p4n4/bridge.sh:ro
+      - ./config/mosquitto:/p4n4:ro
       - ./config/mosquitto/certs:/mosquitto/certs:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
