@@ -112,7 +112,8 @@
           "agent",
           "grafana",
           "video",
-          "feed"
+          "feed",
+          "map"
         ]
       }
     },
@@ -285,6 +286,46 @@
           "type": "boolean"
         },
         "videoDemo": {
+          "type": "boolean"
+        },
+        "cameras": {
+          "description": "The Video tab's cameras while no p4n4-api is connected (e.g. a phone running its own stack): the project's dashboard.cameras win once one is.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "url"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "description": "An http(s) stream, or device:back / device:front for the phone's own cameras.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "gpsPublish": {
+          "description": "Drive: publish the phone's GPS fixes to the deployment's MQTT broker.",
+          "type": "boolean"
+        },
+        "obdRelay": {
+          "description": "Drive: relay a Bluetooth OBD-II adapter to the stack's obd2 service over TCP.",
+          "type": "boolean"
+        },
+        "dashcamAutoStart": {
+          "description": "Drive: start dashcam loop recording when the app opens.",
           "type": "boolean"
         }
       },

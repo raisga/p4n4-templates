@@ -50,6 +50,7 @@ Every template is **self-contained**: the directory is a runnable project on its
 | [`mqtt-influx-grafana-ollama-letta`](projects/mqtt-influx-grafana-ollama-letta) | iot + ai | Maintenance assistant with memory: vibration, bearing temperature and current from pumps and fans, plus a Letta agent on a local Ollama model for p4n4-dashboard's Agent tab. It keeps an equipment register and past incidents in its memory, reads trends through InfluxDB tools, and logs reported maintenance to its memory and to Grafana. Two weeks of demo history, with pump-2 repeating the pattern before its last failure |
 | [`mqtt-influx-grafana-ollama-pidurable`](projects/mqtt-influx-grafana-ollama-pidurable) | iot + ai | Durable incident investigator: pumps publish readings and inference results, Node-RED stores them and raises an alert over an anomaly-score threshold, and a read-only agent (Pi Durable on a local Ollama model) investigates each alert through InfluxDB tools and publishes its finding to MQTT, InfluxDB and Grafana. Every step is checkpointed, so a crash or restart resumes the investigation; repeated alerts for one fault are one investigation. A simulated pump fails on schedule. Includes a SIGKILL crash test under p4n4-emu |
 | [`mqtt-influx-grafana-ollama-go2rtc`](projects/mqtt-influx-grafana-ollama-go2rtc) | iot + ai + extras | Road traffic counting with ALPR: an ingest service for the ALPR device ↔ web contract (plates in SQLite for a retention period; counts without plates in InfluxDB + MQTT), a Grafana traffic dashboard, an agent that answers with deterministic numbers and looks plates up, and go2rtc streams for p4n4-dashboard's Video tab. Demo road and synthetic video included |
+| [`mqtt-influx-grafana-obd2`](projects/mqtt-influx-grafana-obd2) | iot + extras | Everyday driving on one phone: a rooted Android phone runs the stack next to p4n4-dashboard, whose Video tab records a dashcam and a cabin camera. The obd2 service reads the car through a Bluetooth ELM327 adapter that the app relays, the app publishes the phone's GPS fixes, and a Grafana Drive dashboard shows gauges, trip distance and fuel, trouble codes and the route. nginx serves an offline Protomaps map to the app's Map tab. Simulated car and demo route included |
 
 ### Planned
 
@@ -108,7 +109,7 @@ docker compose up -d
 
 ### MQTT device logins
 
-The seven projects support opt-in device authentication in the IoT `.env`
+The eight projects support opt-in device authentication in the IoT `.env`
 (the project-root `.env` for single-layer projects). Set `MQTT_USER` and
 `MQTT_PASSWORD`, generating the password with `openssl rand -hex 32`, then
 recreate `mqtt`. Devices use the host's port 1883; WebSocket clients use 9001
@@ -121,7 +122,7 @@ with a different username. Optional `config/mosquitto/passwd` and `acl` files
 add accounts and per-user topic rules; `MQTT_USER` always has full access.
 Global write patterns cannot be combined with the read-only account.
 
-Container services (Telegraf, Node-RED, n8n, the ingest and the agents) keep using
+Container services (Telegraf, Node-RED, n8n, the ingest, obd2 and the agents) keep using
 the anonymous, unpublished listener on port 1883. Only trusted containers should
 join `p4n4-net`. Each template carries its own `auth.sh` so a copied project
 remains self-contained. MQTT packets are limited to 4 MiB.

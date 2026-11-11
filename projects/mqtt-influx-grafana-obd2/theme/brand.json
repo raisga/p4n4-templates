@@ -1,0 +1,38 @@
+{
+  "id": "p4n4-drive",
+  "appName": "p4n4 Drive",
+  "wordmark": { "text": "p4n4", "suffix": ".drive" },
+  "tagline": "Example white-label brand for everyday drivers: a dashcam, the car's OBD-II stats and an offline map on one phone — replace or delete.",
+  "fonts": { "display": "Manrope", "mono": "DM Mono" },
+  "colors": {
+    "light": { "accent": "#0E7490", "accent2": "#155E75", "onAccent": "#FFFFFF" },
+    "dark": {
+      "accent": "#22D3EE", "accent2": "#06B6D4", "onAccent": "#042F35",
+      "bg": "#0A0E12", "bg2": "#10161C", "bg3": "#161E26",
+      "border": "#1F2A35", "border2": "#2A3846", "err": "#F87171"
+    }
+  },
+  "tabs": ["map", "grafana", "video", "services"],
+  "links": [{ "label": "Drive template", "url": "https://github.com/raisga/p4n4-templates/blob/main/projects/mqtt-influx-grafana-obd2/README.md" }],
+  "defaults": {
+    "host": "127.0.0.1",
+    "themeMode": "dark",
+    "powerTabs": "map,grafana,video,services",
+    "normieTabs": "map,grafana,video",
+    "tabOrder": "map,grafana,video,services",
+    "cameras": [
+      { "id": "dashcam", "name": "Dashcam", "url": "device:back" },
+      { "id": "copilot", "name": "Copilot", "url": "device:front" }
+    ],
+    "gpsPublish": true,
+    "obdRelay": false,
+    "dashcamAutoStart": false
+  },
+  "native": {
+    "displayName": "p4n4 Drive",
+    "applicationId": "com.example.p4n4.drive",
+    "bundleId": "com.example.p4n4.drive",
+    "company": "p4n4 Drive (example)",
+    "localNetworkUsage": "Connects to the car's stack on this phone: its dashboards, map and MQTT broker."
+  }
+}

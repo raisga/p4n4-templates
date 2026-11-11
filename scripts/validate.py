@@ -45,8 +45,10 @@ MANIFEST_SCHEMA_VERSION = 1
 # Read by Compose itself rather than interpolated into the file
 COMPOSE_ENV_KEYS = {"COMPOSE_PROFILES", "COMPOSE_PROJECT_NAME"}
 COMPOSE_VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)")
+# ${VAR:-default} or ${VAR-default}, e.g. in "${MAP_PORT:-8088}:80"
+COMPOSE_DEFAULT = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:?-([^}]*)\}")
 # p4n4-dashboard tabs a manifest's "dashboard" block may list (p4n4_lib.manifest.DASHBOARD_TABS)
-DASHBOARD_TABS = {"services", "edge", "agent", "grafana", "video", "feed"}
+DASHBOARD_TABS = {"services", "edge", "agent", "grafana", "video", "feed", "map"}
 GRAFANA_DASHBOARD_PATH = re.compile(r"^/d/([^/?#]+)")
 CAMERA_ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
@@ -83,14 +85,15 @@ def env_keys(path: Path) -> set[str]:
 
 
 def host_ports(service: dict) -> set[int]:
+    """Host ports a service publishes, with variables read as their defaults."""
     ports = set()
     for entry in service.get("ports", []):
         if isinstance(entry, dict):
             if "published" in entry:
-                ports.add(int(entry["published"]))
+                ports.add(int(COMPOSE_DEFAULT.sub(r"\1", str(entry["published"]))))
             continue
         # "HOST:CONTAINER", "IP:HOST:CONTAINER" or "CONTAINER" (no host port)
-        parts = str(entry).split("/")[0].split(":")
+        parts = COMPOSE_DEFAULT.sub(r"\1", str(entry)).split("/")[0].split(":")
         if len(parts) >= 2:
             ports.add(int(parts[-2]))
     return ports

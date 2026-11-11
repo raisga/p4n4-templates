@@ -1,0 +1,3 @@
+# python-OBD is GPL-2.0-only, so this extra is too (extra.yaml, LICENSE)
+obd==0.7.3
+paho-mqtt==2.1.0

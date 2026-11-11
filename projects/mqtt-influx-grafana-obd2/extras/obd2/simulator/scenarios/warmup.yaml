@@ -1,0 +1,29 @@
+# ==============================================================================
+# warmup: a cold start, a drive loop, and a lean code that sets on the way
+# ==============================================================================
+# The timeline repeats every `loop` seconds, so a long test sees the code set,
+# and then clear again when the loop starts over. Values are a number, a ramp
+# {from, to, over} (seconds, then it holds) or a wave {base, amplitude, period}.
+# ==============================================================================
+name: warmup
+adapter: ELM327 v1.5
+vin: P4N4SIM0000000001        # made up; never a real car's
+loop: 600
+voltage: {running: 14.1, off: 12.4}
+off: []                       # [[from, to], ...]: seconds with the engine off
+
+values:
+  rpm: {base: 1700, amplitude: 900, period: 45}
+  speed: {base: 40, amplitude: 35, period: 45}
+  maf: {base: 9, amplitude: 6, period: 45}
+  engine_load: {base: 35, amplitude: 15, period: 45}
+  coolant_temp: {from: 18, to: 91, over: 300}
+  intake_temp: {from: 18, to: 32, over: 300}
+  stft_b1: {base: 2, amplitude: 3, period: 20}
+  ltft_b1: {from: 0, to: 9, over: 240}        # drifts lean, so P0171 sets
+  throttle_pos: {base: 22, amplitude: 12, period: 45}
+  fuel_level: {from: 64, to: 61, over: 600}
+
+dtcs:
+  - {code: P0171, type: pending, from: 60, to: 120}
+  - {code: P0171, type: stored, from: 120}

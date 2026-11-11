@@ -1,0 +1,187 @@
+services:
+
+  # ====================================================================================
+  # mqtt-influx-grafana-obd2: iot layer (creates p4n4-net; start it before ../extras)
+  #   phone app (GPS) ──MQTT :1883──┬──► mqtt ──► telegraf ──┬──► influxdb ──► grafana
+  #   obd2 (../extras) ──MQTT───────┤                        └──► ./data/archive (file system)
+  #   gps-sim (demo) ──MQTT─────────┘
+  # ====================================================================================
+
+  # ------------------------------------------------------------------------------------
+  # MQTT Broker (Eclipse Mosquitto): the phone app publishes its GPS fixes on 1883, the
+  # obd2 service (../extras) the car's readings on the Docker-only listener
+  # ------------------------------------------------------------------------------------
+  mqtt:
+    image: eclipse-mosquitto:2.0.22
+    container_name: p4n4-mqtt
+    restart: ${RESTART_POLICY:-unless-stopped}
+    ports:
+      - "1883:1884"   # Devices; 1883 stays Docker-only
+      - "9001:9001"   # MQTT WebSocket
+    entrypoint: ["/bin/sh", "/p4n4/auth.sh", "/docker-entrypoint.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/p4n4/mosquitto.conf"]
+    environment:
+      MQTT_USER: ${MQTT_USER:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      MQTT_READONLY_USER: ${MQTT_READONLY_USER:-}
+      MQTT_READONLY_PASSWORD: ${MQTT_READONLY_PASSWORD:-}
+    volumes:
+      - ./config/mosquitto:/p4n4:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/uptime' -C 1 -W 3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Time-Series Database (InfluxDB 2)
+  # ------------------------------------------------------------------------------------
+  influxdb:
+    image: influxdb:2.9
+    container_name: p4n4-influxdb
+    restart: ${RESTART_POLICY:-unless-stopped}
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USERNAME:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:-adminpassword}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-ming}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+      DOCKER_INFLUXDB_INIT_RETENTION: ${INFLUXDB_RETENTION:-30d}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Ingest (Telegraf): MQTT → InfluxDB + file-system archive
+  # ------------------------------------------------------------------------------------
+  telegraf:
+    image: telegraf:1.40
+    container_name: p4n4-telegraf
+    restart: ${RESTART_POLICY:-unless-stopped}
+    # Run as the host user so archive files in ./data are readable without sudo
+    user: "${ARCHIVE_UID:-1000}:${ARCHIVE_GID:-1000}"
+    environment:
+      TZ: ${TZ:-UTC}
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+      ARCHIVE_ROTATION_INTERVAL: ${ARCHIVE_ROTATION_INTERVAL:-24h}
+    volumes:
+      - ./config/telegraf:/etc/telegraf:ro
+      - ./data/archive:/archive
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Data Visualization (Grafana): the Drive dashboard, also Grafana's home page
+  # ------------------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana-oss:12.4.3
+    container_name: p4n4-grafana
+    restart: ${RESTART_POLICY:-unless-stopped}
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-adminpassword}
+      # "/" opens the Drive dashboard, so the app's Grafana tab works without p4n4-api
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/json/drive.json
+      # Dark UI unless the page asks for ?theme=light (p4n4-dashboard passes its
+      # own theme)
+      GF_USERS_DEFAULT_THEME: dark
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Read-only access without signing in, e.g. for p4n4-dashboard's Grafana tab
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS:-false}
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Lets p4n4-dashboard's web build show Grafana in an <iframe>
+      GF_SECURITY_ALLOW_EMBEDDING: ${GRAFANA_ALLOW_EMBEDDING:-false}
+      # Path Grafana serves under: "/" (default), or e.g. "/grafana/" when
+      # p4n4-dashboard proxies it on its own origin (GRAFANA_UPSTREAM)
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s${GRAFANA_SUB_PATH:-/}"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Passed to provisioning files via env var expansion
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-p4n4-stack-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ming}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-raw_telemetry}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - p4n4-net
+
+  # ------------------------------------------------------------------------------------
+  # Demo GPS (profile "demo"; enabled by COMPOSE_PROFILES in .env): a car lapping a
+  # route in Monaco, published like the phone app's fixes on sensors/<id>/gps
+  # ------------------------------------------------------------------------------------
+  gps-sim:
+    image: eclipse-mosquitto:2.0.22
+    container_name: p4n4-gps-sim
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles: [demo]
+    entrypoint: ["/bin/sh", "/scripts/gps-sim.sh"]
+    environment:
+      MQTT_HOST: mqtt
+      GPS_DEVICE_ID: ${GPS_DEVICE_ID:-car}
+      GPS_INTERVAL: ${GPS_INTERVAL:-1}
+      GPS_MAX_SPEED: ${GPS_MAX_SPEED:-50}
+      GPS_ROUTE: ${GPS_ROUTE:-}
+    volumes:
+      - ./scripts/gps-sim.sh:/scripts/gps-sim.sh:ro
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    networks:
+      - p4n4-net
+
+# ====================================================================================
+# NETWORKS
+# ====================================================================================
+networks:
+  p4n4-net:
+    name: p4n4-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ====================================================================================
+# VOLUMES
+# ====================================================================================
+volumes:
+  mosquitto-data:
+  mosquitto-log:
+  influxdb-data:
+  influxdb-config:
+  grafana-data:

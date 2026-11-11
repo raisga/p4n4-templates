@@ -1,0 +1,14 @@
+.env
+docker-compose.override.yml
+
+# File-system archive written by Telegraf. Keep its two directories: Telegraf
+# doesn't create them, and iot/docker-compose.yml mounts their parent
+iot/data/archive/*/*
+!iot/data/archive/*/.gitkeep
+
+# The offline map from scripts/fetch-map.sh (keep the directory: extras/docker-compose.yml mounts it)
+extras/data/map/*
+!extras/data/map/.gitkeep
+
+# p4n4-api data (users, JWT secret)
+.p4n4-api/

@@ -1,0 +1,10 @@
+apiVersion: 1
+
+providers:
+  - name: p4n4
+    folder: p4n4
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

@@ -1,0 +1,84 @@
+# ==============================================================================
+# Template metadata, validated against schema/template.schema.json
+# ==============================================================================
+schema_version: 1
+name: mqtt-influx-grafana-obd2
+version: 0.1.0
+title: Drive · dashcam, OBD-II stats and an offline map on one phone
+description: >-
+  For everyday drivers: one rooted Android phone runs this stack and
+  p4n4-dashboard side by side. The obd2 service reads the car through a
+  Bluetooth ELM327 adapter, which the app relays over TCP, and publishes its
+  readings, trouble codes and status over MQTT; the app publishes the phone's
+  GPS fixes. Telegraf stores both in InfluxDB, and Grafana's Drive dashboard
+  shows gauges, trip stats, trouble codes and the GPS track. The app's Video
+  tab is a dashcam (the back camera) and a cabin camera (the front one), and
+  its Map tab an offline map that the tiles service serves from a Protomaps
+  extract (scripts/fetch-map.sh). A simulated car and a demo route around
+  Monaco make it work with no car.
+layers: [iot, extras]
+tags: [obd2, elm327, car, dashcam, gps, offline-map, pmtiles, android, termux, influxdb, grafana, mqtt]
+maintainers:
+  - jraleman
+
+services:
+  - name: mqtt
+    layer: iot
+    description: Eclipse Mosquitto MQTT broker; the phone app publishes its GPS fixes on 1883
+    ports: [1883, 9001]
+  - name: influxdb
+    layer: iot
+    description: InfluxDB 2 time-series database
+    ports: [8086]
+  - name: telegraf
+    layer: iot
+    description: MQTT consumer that writes readings, trouble codes and the car's status to InfluxDB and the file-system archive
+  - name: grafana
+    layer: iot
+    description: Provisioned InfluxDB datasource and the Drive dashboard, also the home page
+    ports: [3000]
+  - name: gps-sim
+    layer: iot
+    description: Demo GPS, a car lapping a route around Monaco (compose profile "demo")
+    profile: demo
+  - name: obd2
+    layer: extras
+    description: Reads the car through an ELM327 adapter (OBD_DEVICE), read-only, and publishes readings, trouble codes and status over MQTT
+    ports: [8090]
+  - name: obd2-sim
+    layer: extras
+    description: A simulated car and ELM327 adapter for obd2 (compose profile "demo")
+    profile: demo
+  - name: tiles
+    layer: extras
+    description: nginx serving the offline map (extras/data/map) to the app's Map tab
+    ports: [8088]
+
+data:
+  topics:
+    - pattern: sensors/<device-id>/gps
+      payload: >-
+        {"lat": 43.73, "lon": 7.42, "alt": 52.0, "speed": 37.5, "heading": 182.0, "acc": 4.0}
+        (degrees, m, km/h, degrees, m) at about 1 Hz, from the phone app or gps-sim
+    - pattern: sensors/<device-id>/<measurement>
+      payload: >-
+        {"value": 2150, "unit": "rpm"} from obd2: rpm, speed, maf, engine_load, coolant_temp,
+        intake_temp, stft_b1, ltft_b1, throttle_pos, fuel_level, battery_v
+    - pattern: alerts/<device-id>/dtc
+      payload: >-
+        {"codes": [...], "pending": [...], "permanent": [...], "mil": true, "descriptions": {...},
+        "freeze_frame": {...}} from obd2, when they change
+    - pattern: status/<device-id>/online
+      payload: '{"online": true, "vehicle": true, "adapter": "...", "protocol": "..."} from obd2, retained'
+  influxdb:
+    bucket: raw_telemetry
+    measurement: sensor_data
+    tags: [device, sensor]
+    # also dtc (trouble codes) and vehicle_status (obd2's status), tag device
+  archive:
+    - path: iot/data/archive/lineprotocol/
+      format: influx-line-protocol
+    - path: iot/data/archive/raw/
+      format: jsonl-raw-mqtt
+
+smoke_test: tests/smoke.sh
